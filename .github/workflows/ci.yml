@@ -9,6 +9,12 @@ on:
 permissions:
   contents: write
 
+# Opt the Node.js-based actions (checkout, upload-artifact,
+# download-artifact, …) onto Node 24 ahead of the June 2026 cutover.
+# See https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   build:
     name: Build Baaaa.app

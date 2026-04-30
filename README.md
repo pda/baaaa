@@ -52,11 +52,14 @@ Click the 🐑 in the menu bar for:
   `.floating` level so it sits above ordinary windows. The window
   accepts mouse events (so you can grab the sheep) but never becomes
   key or main, so it doesn't steal focus from the app underneath.
-- A 30 Hz timer steps a tiny physics model with three modes —
-  *falling* (gravity + terminal velocity), *walking* (constant
-  horizontal speed with occasional pauses and direction flips), and
-  *dragging* (position driven directly by the cursor) — and chooses
-  the next sprite frame accordingly.
+- A 30 Hz timer steps a tiny physics model with four modes —
+  *falling* (gravity + terminal velocity), *dazed* (a brief
+  impact-bounce → stars-spinning → sit-up sequence played after
+  landing from a real fall, lifted from the upstream eSheep
+  `fall soft` animation), *walking* (constant horizontal speed with
+  occasional pauses and direction flips), and *dragging* (position
+  driven directly by the cursor) — and chooses the next sprite frame
+  accordingly.
 - For "land on top of any window", the controller queries
   `CGWindowListCopyWindowInfo` each tick, filters to ordinary
   application windows (`kCGWindowLayer == 0`), and treats the highest

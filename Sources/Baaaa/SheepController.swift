@@ -32,12 +32,17 @@ final class SheepController: SheepDragDelegate {
 
     // MARK: State
 
+    /// Minimum landing speed (in points per tick) that triggers the
+    /// post-landing dazed animation. Tiny step-downs while walking
+    /// don't qualify — we only daze after a "real" fall.
+    private static let dazeSpeedThreshold: CGFloat = 4.0
+
     private let window: SheepWindow
     private let view: SheepView
     private let screen: NSScreen
     private var timer: Timer?
 
-    private enum Mode { case falling, walking, dragging }
+    private enum Mode { case falling, walking, dragging, dazed }
     private var mode: Mode = .falling
 
     private var x: CGFloat
@@ -50,6 +55,11 @@ final class SheepController: SheepDragDelegate {
     private var tick: Int = 0
     /// While >0 the sheep stands still and idles before walking again.
     private var idleTicks: Int = 0
+
+    /// Position into `SpriteIndex.dazed` while in the dazed mode.
+    private var dazedStep: Int = 0
+    /// Ticks remaining on the current dazed frame.
+    private var dazedFrameTicks: Int = 0
 
     /// Offset between the cursor and the sheep window's bottom-left
     /// while a drag is in progress.
@@ -102,6 +112,7 @@ final class SheepController: SheepDragDelegate {
         case .falling: stepFalling()
         case .walking: stepWalking()
         case .dragging: stepDragging()
+        case .dazed: stepDazed()
         }
         positionWindow()
     }
@@ -118,16 +129,49 @@ final class SheepController: SheepDragDelegate {
         let surface = surfaceY(forSheepX: x, atOrBelow: y)
         if nextY <= surface {
             y = surface
+            let landingSpeed = abs(vy)
             vy = 0
-            mode = .walking
-            idleTicks = Int.random(in: 6...30)
             // Pick a new direction occasionally on landing.
             if Bool.random() { direction = -direction }
-            view.setSprite(index: SpriteIndex.walk[0], flipped: direction > 0)
+
+            if landingSpeed >= Self.dazeSpeedThreshold {
+                // Hit the ground hard enough to be momentarily dazed —
+                // play the impact / stars-spinning / sit-up sequence
+                // before resuming the walk cycle.
+                enterDazed()
+            } else {
+                mode = .walking
+                idleTicks = Int.random(in: 6...30)
+                view.setSprite(index: SpriteIndex.walk[0], flipped: direction > 0)
+            }
         } else {
             y = nextY
             view.setSprite(index: SpriteIndex.fall, flipped: direction > 0)
         }
+    }
+
+    private func enterDazed() {
+        mode = .dazed
+        dazedStep = 0
+        let frame = SpriteIndex.dazed[0]
+        dazedFrameTicks = frame.ticks
+        view.setSprite(index: frame.sprite, flipped: direction > 0)
+    }
+
+    private func stepDazed() {
+        dazedFrameTicks -= 1
+        if dazedFrameTicks > 0 { return }
+        dazedStep += 1
+        if dazedStep >= SpriteIndex.dazed.count {
+            // Recovery complete — resume normal walking.
+            mode = .walking
+            idleTicks = Int.random(in: 6...30)
+            view.setSprite(index: SpriteIndex.walk[0], flipped: direction > 0)
+            return
+        }
+        let frame = SpriteIndex.dazed[dazedStep]
+        dazedFrameTicks = frame.ticks
+        view.setSprite(index: frame.sprite, flipped: direction > 0)
     }
 
     private func stepWalking() {
@@ -361,4 +405,21 @@ private enum SpriteIndex {
 
     /// Frames cycled through by the original "drag" animation.
     static let drag: [Int] = [42, 43, 44]
+
+    /// One step of the dazed-after-landing animation.
+    struct DazedFrame { let sprite: Int; let ticks: Int }
+
+    /// Post-landing "dazed" sequence, taken from the upstream eSheep
+    /// `fall soft` animation: an impact bounce, a brief stars-spinning
+    /// loop above the head, then a sit-up before resuming the walk.
+    /// Tick counts are calibrated for the 30 Hz simulation tick — the
+    /// whole sequence runs in roughly one second.
+    static let dazed: [DazedFrame] = [
+        DazedFrame(sprite: 49, ticks: 6),  // impact bounce
+        DazedFrame(sprite: 13, ticks: 5),  // stars spin
+        DazedFrame(sprite: 12, ticks: 5),  // stars spin
+        DazedFrame(sprite: 13, ticks: 5),  // stars spin
+        DazedFrame(sprite: 12, ticks: 5),  // stars spin
+        DazedFrame(sprite: 6,  ticks: 7),  // sitting up / recovery
+    ]
 }
