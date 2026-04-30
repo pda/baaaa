@@ -1,0 +1,117 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Baaaa.app
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        # Xcode 15.x ships a Swift 5.9+ toolchain compatible with the
+        # macOS 13 deployment target declared in Package.swift.
+        run: sudo xcode-select -s /Applications/Xcode_15.4.app
+
+      - name: Show toolchain versions
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
+
+      - name: swift build
+        run: swift build -c release
+
+      - name: make app
+        # Ad-hoc codesigns Baaaa.app via the Makefile.
+        run: make app
+
+      - name: Verify bundle
+        run: |
+          test -x Baaaa.app/Contents/MacOS/Baaaa
+          test -f Baaaa.app/Contents/Info.plist
+          test -d Baaaa.app/Contents/Resources/Baaaa_Baaaa.bundle
+          codesign -dv Baaaa.app
+
+      - name: Package artifact
+        # Always produce the tarball so the build job's artifact can be
+        # downloaded for inspection from any push, not just tags.
+        run: |
+          tar -czvf Baaaa.app.tar.gz Baaaa.app README.md
+          shasum -a 256 Baaaa.app.tar.gz | tee Baaaa.app.tar.gz.sha256
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Baaaa.app
+          path: |
+            Baaaa.app.tar.gz
+            Baaaa.app.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Baaaa.app
+          path: dist
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          NOTES_FILE="$(mktemp)"
+          cat > "$NOTES_FILE" <<EOF
+          ## Baaaa $TAG
+
+          Download \`Baaaa.app.tar.gz\`, extract it, and move \`Baaaa.app\`
+          into \`/Applications\` (or wherever you like).
+
+          ### First launch (Gatekeeper)
+
+          Baaaa is **ad-hoc signed only** — there is no paid Apple
+          Developer ID behind it, so macOS will refuse to open it on
+          first launch with "damaged" or "unidentified developer".
+
+          To get past this, either:
+
+          - Right-click \`Baaaa.app\` → **Open**, then confirm in the
+            dialog, **or**
+          - Strip the quarantine attribute from a terminal:
+
+            \`\`\`sh
+            xattr -dr com.apple.quarantine /Applications/Baaaa.app
+            \`\`\`
+
+          ### Licensing
+
+          Sprite art is **eSheep** by Adriano Petrucci, distributed
+          under the GNU GPL-3.0. See the bundled \`README.md\` and
+          <https://github.com/Adrianotiger/desktopPet> for source and
+          licence terms; this release inherits GPL-3.0.
+          EOF
+
+          gh release create "$TAG" \
+            --title "Baaaa $TAG" \
+            --notes-file "$NOTES_FILE" \
+            dist/Baaaa.app.tar.gz \
+            dist/Baaaa.app.tar.gz.sha256

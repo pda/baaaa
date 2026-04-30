@@ -21,6 +21,7 @@ app: build
 	cp "$(BUILD_DIR)/$(APP_NAME)" "$(APP)/Contents/MacOS/$(APP_NAME)"
 	cp -R "$(BUILD_DIR)/$(APP_NAME)_$(APP_NAME).bundle" "$(APP)/Contents/Resources/"
 	cp Resources/Info.plist "$(APP)/Contents/Info.plist"
+	codesign --force --deep --sign - "$(APP)"
 	@echo "Built $(APP)"
 
 open: app
