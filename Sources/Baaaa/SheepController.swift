@@ -30,6 +30,12 @@ final class SheepController: SheepDragDelegate {
     /// walking before it has to fall instead.
     private static let stepUpTolerance: CGFloat = 4.0
 
+    /// Normal pause length between short bursts of walking.
+    private static let idlePauseRange = 15...60
+
+    /// Rare longer pauses so a sheep occasionally lingers in place.
+    private static let longIdlePauseRange = 120...300
+
     // MARK: State
 
     /// Minimum landing speed (in points per tick) that triggers the
@@ -55,6 +61,8 @@ final class SheepController: SheepDragDelegate {
     private var tick: Int = 0
     /// While >0 the sheep stands still and idles before walking again.
     private var idleTicks: Int = 0
+    /// State machine for idle blinks between short standing pauses.
+    private var blink: BlinkState
 
     /// Position into `SpriteIndex.dazed` while in the dazed mode.
     private var dazedStep: Int = 0
@@ -73,6 +81,13 @@ final class SheepController: SheepDragDelegate {
         self.window = SheepWindow(size: size)
         self.view = SheepView(frame: NSRect(origin: .zero, size: size))
         self.window.contentView = self.view
+        self.blink = BlinkState(
+            standingSprite: BlinkStyles.sheep.standingSprite,
+            cooldownRange: BlinkStyles.sheep.cooldownRange,
+            blinkFrames: BlinkStyles.sheep.frames,
+            doubleBlinkFrames: BlinkStyles.sheep.doubleFrames,
+            doubleBlinkChance: BlinkStyles.sheep.doubleBlinkChance
+        )
 
         // Spawn somewhere along the top of the screen.
         let frame = screen.visibleFrame
@@ -142,10 +157,11 @@ final class SheepController: SheepDragDelegate {
             } else {
                 mode = .walking
                 idleTicks = Int.random(in: 6...30)
-                view.setSprite(index: SpriteIndex.walk[0], flipped: direction > 0)
+                view.setSprite(index: standingSpriteIndex(), flipped: direction > 0)
             }
         } else {
             y = nextY
+            interruptBlinkCycle()
             view.setSprite(index: SpriteIndex.fall, flipped: direction > 0)
         }
     }
@@ -166,7 +182,7 @@ final class SheepController: SheepDragDelegate {
             // Recovery complete — resume normal walking.
             mode = .walking
             idleTicks = Int.random(in: 6...30)
-            view.setSprite(index: SpriteIndex.walk[0], flipped: direction > 0)
+            view.setSprite(index: standingSpriteIndex(), flipped: direction > 0)
             return
         }
         let frame = SpriteIndex.dazed[dazedStep]
@@ -180,10 +196,11 @@ final class SheepController: SheepDragDelegate {
         // Idle pause between bursts of walking.
         if idleTicks > 0 {
             idleTicks -= 1
-            view.setSprite(index: SpriteIndex.walk[0], flipped: direction > 0)
+            view.setSprite(index: standingSpriteIndex(), flipped: direction > 0)
             return
         }
 
+        blink.endedStandingPose()
         x += direction * Self.walkSpeed
 
         // Bounce off horizontal screen edges.
@@ -207,7 +224,11 @@ final class SheepController: SheepDragDelegate {
             direction = -direction
         }
         if Int.random(in: 0..<300) == 0 {
-            idleTicks = Int.random(in: 15...60)
+            if Int.random(in: 0..<5) == 0 {
+                idleTicks = Int.random(in: Self.longIdlePauseRange)
+            } else {
+                idleTicks = Int.random(in: Self.idlePauseRange)
+            }
         }
     }
 
@@ -219,6 +240,7 @@ final class SheepController: SheepDragDelegate {
         if SurfaceState.shouldFall(currentY: y, surfaceY: surface) {
             mode = .falling
             vy = 0
+            interruptBlinkCycle()
             view.setSprite(index: SpriteIndex.fall, flipped: direction > 0)
             return false
         }
@@ -241,6 +263,7 @@ final class SheepController: SheepDragDelegate {
         mode = .dragging
         vy = 0
         idleTicks = 0
+        interruptBlinkCycle()
         dragOffset = NSSize(width: globalPoint.x - x, height: globalPoint.y - y)
         view.setSprite(index: SpriteIndex.drag[0], flipped: direction > 0)
     }
@@ -264,6 +287,14 @@ final class SheepController: SheepDragDelegate {
 
     private func positionWindow() {
         window.setFrameOrigin(NSPoint(x: x, y: y))
+    }
+
+    private func interruptBlinkCycle() {
+        blink.interrupted()
+    }
+
+    private func standingSpriteIndex() -> Int {
+        blink.standingSpriteIndex()
     }
 
     /// Find the y-coordinate (AppKit, bottom-left origin) of the

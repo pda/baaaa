@@ -29,12 +29,15 @@ ifneq ($(strip $(NOTARY_KEYCHAIN)),)
 NOTARY_SUBMIT_ARGS += --keychain "$(NOTARY_KEYCHAIN)"
 endif
 
-.PHONY: all build run app zip notarize open verify sign-identities clean
+.PHONY: all build test run app zip notarize open verify sign-identities clean
 
 all: app
 
 build:
 	swift build -c $(CONFIG)
+
+test:
+	swift test -c $(CONFIG)
 
 run:
 	swift run -c $(CONFIG) $(APP_NAME)
@@ -71,7 +74,7 @@ notarize: zip
 open: app
 	open "$(APP)"
 
-verify: app
+verify: app test
 	codesign --verify --deep --strict --verbose=2 "$(APP)"
 	@if [ "$(SIGN_IDENTITY)" = "-" ]; then \
 		echo "Skipping Gatekeeper assessment for ad hoc signature"; \
