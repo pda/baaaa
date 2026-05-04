@@ -6,3 +6,4 @@ Package.resolved
 DerivedData/
 Baaaa.app/
 .DS_Store
+.release-secrets.env
