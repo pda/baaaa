@@ -40,11 +40,17 @@ jobs:
 
       - name: Upload test results to Buildkite Test Engine
         # Run on pass and fail so flaky/failing tests are tracked too.
-        if: always() && hashFiles('.build/junit.xml') != ''
+        # hashFiles() does not descend into dot-directories like .build/,
+        # so the file existence check is done in-script instead.
+        if: always()
         env:
           BUILDKITE_ANALYTICS_TOKEN: ${{ secrets.BUILDKITE_ANALYTICS_TOKEN }}
         run: |
           set -euo pipefail
+          if [ ! -s .build/junit.xml ]; then
+            echo ".build/junit.xml missing or empty; skipping upload."
+            exit 0
+          fi
           if [ -z "${BUILDKITE_ANALYTICS_TOKEN:-}" ]; then
             echo "BUILDKITE_ANALYTICS_TOKEN not set; skipping upload."
             exit 0
