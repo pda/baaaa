@@ -30,6 +30,9 @@ final class SheepController: SheepDragDelegate {
     /// walking before it has to fall instead.
     private static let stepUpTolerance: CGFloat = 4.0
 
+    /// How long a standing sheep waits between blinks.
+    private static let blinkCooldownRange = 90...240
+
     // MARK: State
 
     /// Minimum landing speed (in points per tick) that triggers the
@@ -55,6 +58,12 @@ final class SheepController: SheepDragDelegate {
     private var tick: Int = 0
     /// While >0 the sheep stands still and idles before walking again.
     private var idleTicks: Int = 0
+    /// Ticks before the next standing blink starts.
+    private var blinkCooldownTicks: Int = 0
+    /// Position into `SpriteIndex.blink` while blinking.
+    private var blinkStep: Int = 0
+    /// Ticks remaining on the current blink frame.
+    private var blinkFrameTicks: Int = 0
 
     /// Position into `SpriteIndex.dazed` while in the dazed mode.
     private var dazedStep: Int = 0
@@ -79,6 +88,7 @@ final class SheepController: SheepDragDelegate {
         self.x = CGFloat.random(in: frame.minX...(frame.maxX - Self.displaySize))
         self.y = frame.maxY - Self.displaySize
         self.direction = Bool.random() ? -1 : 1
+        self.blinkCooldownTicks = Int.random(in: Self.blinkCooldownRange)
 
         self.view.dragDelegate = self
     }
@@ -142,10 +152,11 @@ final class SheepController: SheepDragDelegate {
             } else {
                 mode = .walking
                 idleTicks = Int.random(in: 6...30)
-                view.setSprite(index: SpriteIndex.walk[0], flipped: direction > 0)
+                view.setSprite(index: standingSpriteIndex(), flipped: direction > 0)
             }
         } else {
             y = nextY
+            resetBlinkCycle()
             view.setSprite(index: SpriteIndex.fall, flipped: direction > 0)
         }
     }
@@ -166,7 +177,7 @@ final class SheepController: SheepDragDelegate {
             // Recovery complete — resume normal walking.
             mode = .walking
             idleTicks = Int.random(in: 6...30)
-            view.setSprite(index: SpriteIndex.walk[0], flipped: direction > 0)
+            view.setSprite(index: standingSpriteIndex(), flipped: direction > 0)
             return
         }
         let frame = SpriteIndex.dazed[dazedStep]
@@ -180,10 +191,11 @@ final class SheepController: SheepDragDelegate {
         // Idle pause between bursts of walking.
         if idleTicks > 0 {
             idleTicks -= 1
-            view.setSprite(index: SpriteIndex.walk[0], flipped: direction > 0)
+            view.setSprite(index: standingSpriteIndex(), flipped: direction > 0)
             return
         }
 
+        resetBlinkCycle()
         x += direction * Self.walkSpeed
 
         // Bounce off horizontal screen edges.
@@ -219,6 +231,7 @@ final class SheepController: SheepDragDelegate {
         if SurfaceState.shouldFall(currentY: y, surfaceY: surface) {
             mode = .falling
             vy = 0
+            resetBlinkCycle()
             view.setSprite(index: SpriteIndex.fall, flipped: direction > 0)
             return false
         }
@@ -241,6 +254,7 @@ final class SheepController: SheepDragDelegate {
         mode = .dragging
         vy = 0
         idleTicks = 0
+        resetBlinkCycle()
         dragOffset = NSSize(width: globalPoint.x - x, height: globalPoint.y - y)
         view.setSprite(index: SpriteIndex.drag[0], flipped: direction > 0)
     }
@@ -264,6 +278,36 @@ final class SheepController: SheepDragDelegate {
 
     private func positionWindow() {
         window.setFrameOrigin(NSPoint(x: x, y: y))
+    }
+
+    private func resetBlinkCycle() {
+        blinkCooldownTicks = Int.random(in: Self.blinkCooldownRange)
+        blinkStep = 0
+        blinkFrameTicks = 0
+    }
+
+    private func standingSpriteIndex() -> Int {
+        if blinkStep > 0 {
+            blinkFrameTicks -= 1
+            if blinkFrameTicks <= 0 {
+                blinkStep += 1
+                if blinkStep >= SpriteIndex.blink.count {
+                    resetBlinkCycle()
+                    return SpriteIndex.standing
+                }
+                blinkFrameTicks = SpriteIndex.blink[blinkStep].ticks
+            }
+            return SpriteIndex.blink[blinkStep].sprite
+        }
+
+        if blinkCooldownTicks > 0 {
+            blinkCooldownTicks -= 1
+            return SpriteIndex.standing
+        }
+
+        blinkStep = 1
+        blinkFrameTicks = SpriteIndex.blink[blinkStep].ticks
+        return SpriteIndex.blink[blinkStep].sprite
     }
 
     /// Find the y-coordinate (AppKit, bottom-left origin) of the
@@ -404,6 +448,9 @@ private struct Span {
 
 /// Frame indices into the eSheep sprite sheet (16 columns × 11 rows).
 private enum SpriteIndex {
+    /// Neutral standing pose used while idling.
+    static let standing: Int = 3
+
     /// Frames used for the standing/walking cycle. The original
     /// `animations.xml` alternates frames 2 and 3 every 200 ms.
     static let walk: [Int] = [2, 3]
@@ -415,7 +462,16 @@ private enum SpriteIndex {
     static let drag: [Int] = [42, 43, 44]
 
     /// One step of the dazed-after-landing animation.
+    struct BlinkFrame { let sprite: Int; let ticks: Int }
     struct DazedFrame { let sprite: Int; let ticks: Int }
+
+    /// A quick blink assembled from the upstream eSheep sleep-entry frames.
+    static let blink: [BlinkFrame] = [
+        BlinkFrame(sprite: standing, ticks: 0),
+        BlinkFrame(sprite: 107, ticks: 2),
+        BlinkFrame(sprite: 108, ticks: 2),
+        BlinkFrame(sprite: 107, ticks: 2),
+    ]
 
     /// Post-landing "dazed" sequence, taken from the upstream eSheep
     /// `fall soft` animation: an impact bounce, a brief stars-spinning
