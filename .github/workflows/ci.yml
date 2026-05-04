@@ -24,7 +24,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Select Xcode
-        # Xcode 26.4 ships Swift 6.2, which supports
+        # Xcode 26.4 ships a Swift 6.3 toolchain, which supports
         # `swift test --xunit-output` for swift-testing.
         # Package.swift's macOS 13 deployment target still builds
         # cleanly under this toolchain.
