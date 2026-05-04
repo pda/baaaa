@@ -11,6 +11,12 @@ func expectEqual(_ actual: CGFloat, _ expected: CGFloat, _ label: String) throws
     }
 }
 
+func expectApprox(_ actual: CGFloat, _ expected: CGFloat, _ tolerance: CGFloat, _ label: String) throws {
+    guard abs(actual - expected) <= tolerance else {
+        throw Failure(message: "\(label): expected \(expected) ± \(tolerance), got \(actual)")
+    }
+}
+
 do {
     let screen = CGRect(x: 0, y: 0, width: 1440, height: 900)
     let dock = CGRect(x: 360, y: 0, width: 720, height: 95)
@@ -37,18 +43,31 @@ do {
         "over dock width should stand on dock top"
     )
 
-    try expectEqual(
+    try expectApprox(
+        GroundSurface.floorY(
+            screenFrame: screen,
+            sheepX: 330,
+            sheepWidth: 80,
+            dockRect: dock
+        ),
+        76.6548,
+        0.02,
+        "rounded dock corners should lower the sheep onto the curved crown instead of a flat edge"
+    )
+
+    try expectApprox(
         GroundSurface.floorY(
             screenFrame: screen,
             sheepX: 350,
             sheepWidth: 80,
             dockRect: dock
         ),
-        0,
-        "rounded dock corners should not count as a full-width flat platform"
+        91.6588,
+        0.01,
+        "sheep should ride down the rounded dock end instead of dropping behind it"
     )
 
-    try expectEqual(
+    try expectApprox(
         GroundSurface.floorY(
             screenFrame: screen,
             sheepX: 4,
@@ -56,6 +75,7 @@ do {
             dockRect: CGRect(x: 0, y: 0, width: 87, height: 600)
         ),
         600,
+        0.01,
         "side dock should expose its top edge as a finite platform"
     )
 

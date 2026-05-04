@@ -156,8 +156,6 @@ struct DockGeometry {
 }
 
 enum GroundSurface {
-    private static let minSupportFraction: CGFloat = 0.4
-
     static func floorY(
         screenFrame: CGRect,
         sheepX: CGFloat,
@@ -167,14 +165,12 @@ enum GroundSurface {
         let desktopY = screenFrame.minY
         guard let dockRect else { return desktopY }
 
-        let supportSpan = topSupportSpan(for: dockRect)
-        let sheepLeft = sheepX
-        let sheepRight = sheepX + sheepWidth
-        let overlap = min(supportSpan.upperBound, sheepRight) - max(supportSpan.lowerBound, sheepLeft)
-        if overlap >= sheepWidth * minSupportFraction {
-            return max(desktopY, dockRect.maxY)
+        let sheepCenterX = sheepX + (sheepWidth / 2)
+        guard sheepCenterX >= dockRect.minX, sheepCenterX <= dockRect.maxX else {
+            return desktopY
         }
-        return desktopY
+
+        return max(desktopY, roundedTopY(for: dockRect, at: sheepCenterX))
     }
 
     static func appKitRect(
@@ -190,12 +186,18 @@ enum GroundSurface {
         )
     }
 
-    private static func topSupportSpan(for dockRect: CGRect) -> ClosedRange<CGFloat> {
-        guard dockRect.width > dockRect.height else {
-            return dockRect.minX...dockRect.maxX
+    private static func roundedTopY(for dockRect: CGRect, at x: CGFloat) -> CGFloat {
+        let radius = min(dockRect.height / 2, dockRect.width / 2)
+        let flatLeft = dockRect.minX + radius
+        let flatRight = dockRect.maxX - radius
+        if x >= flatLeft, x <= flatRight {
+            return dockRect.maxY
         }
 
-        let cornerInset = min(dockRect.height / 2, dockRect.width / 4)
-        return (dockRect.minX + cornerInset)...(dockRect.maxX - cornerInset)
+        let cornerCenterX = x < flatLeft ? flatLeft : flatRight
+        let cornerCenterY = dockRect.maxY - radius
+        let dx = x - cornerCenterX
+        let dy = sqrt(max(0, (radius * radius) - (dx * dx)))
+        return cornerCenterY + dy
     }
 }
