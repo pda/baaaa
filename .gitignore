@@ -7,3 +7,4 @@ DerivedData/
 Baaaa.app/
 .DS_Store
 .release-secrets.env
+test-engine-suite-token
