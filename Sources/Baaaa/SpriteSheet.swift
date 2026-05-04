@@ -19,7 +19,7 @@ final class SpriteSheet {
     private struct CacheKey: Hashable { let index: Int; let flipped: Bool }
 
     private init() {
-        guard let url = Bundle.module.url(forResource: "esheep", withExtension: "png"),
+        guard let url = SpriteSheet.locateSpriteSheet(),
               let data = try? Data(contentsOf: url),
               let provider = CGDataProvider(data: data as CFData),
               let raw = CGImage(
@@ -55,6 +55,24 @@ final class SpriteSheet {
         }
         cache[key] = cropped
         return cropped
+    }
+
+    /// Locate `esheep.png` regardless of how the binary is packaged.
+    ///
+    /// SwiftPM's generated `Bundle.module` accessor only looks for the
+    /// resource bundle next to `Bundle.main.bundleURL` (i.e. directly
+    /// inside `Baaaa.app/`) or at a hard-coded absolute path that
+    /// points at the developer's `.build/` directory. Neither exists
+    /// inside a properly laid-out `.app` on another machine, so we
+    /// look in `Contents/Resources/` first and only fall back to
+    /// `Bundle.module` (whose initializer would otherwise crash).
+    private static func locateSpriteSheet() -> URL? {
+        let appResources = Bundle.main.bundleURL
+            .appendingPathComponent("Contents/Resources/Baaaa_Baaaa.bundle/esheep.png")
+        if FileManager.default.fileExists(atPath: appResources.path) {
+            return appResources
+        }
+        return Bundle.module.url(forResource: "esheep", withExtension: "png")
     }
 
     // MARK: - Image processing
