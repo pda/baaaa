@@ -23,6 +23,9 @@ your main display, falls until it meets either the bottom of the screen
 or the top edge of an application window, then strolls around. Walking
 off an edge makes it fall again.
 
+For accurate Dock perching, macOS may ask you to grant Accessibility
+access so Baaaa can read the Dock's on-screen bounds.
+
 ## Build a `.app` bundle
 
 ```sh
@@ -109,6 +112,11 @@ Click the 🐑 in the menu bar for:
   `FrontmostApp.swift`. Our own process is deliberately never recorded
   as frontmost, so clicking the 🐑 status item doesn't strand the
   sheep.
+- The sheep now treats the Dock as a real finite platform instead of a
+  full-width screen strip. Its bounds come from the Dock process's
+  accessibility `AXList` elements, converted from top-left AX screen
+  coordinates into AppKit space; if Accessibility access isn't granted,
+  the sheep falls to the desktop bottom instead.
 - The sprite sheet is a 16×11 grid of 40×40 tiles taken from the eSheep
   project. Magenta (`#FF00FF`) is stripped to alpha at load time, and
   tiles are rendered into a `CALayer` with nearest-neighbour

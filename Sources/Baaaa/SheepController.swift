@@ -265,9 +265,10 @@ final class SheepController: SheepDragDelegate {
 
     /// Find the y-coordinate (AppKit, bottom-left origin) of the
     /// highest "ground" surface at column `sheepX` whose top edge is
-    /// at or below `maxY`. Candidates are the bottom of the visible
-    /// screen frame and the *visible* portion of the top edge of any
-    /// normal application window beneath us.
+    /// at or below `maxY`. Candidates are the bottom of the screen,
+    /// the top edge of the Dock when the sheep actually overlaps it,
+    /// and the *visible* portion of the top edge of any normal
+    /// application window beneath us.
     ///
     /// "Visible" means: the segment of a window's top edge that isn't
     /// occluded by any window that sits in front of it. We require
@@ -281,8 +282,12 @@ final class SheepController: SheepDragDelegate {
     /// frontmost application — those are reliably visible. See
     /// `FrontmostApp` for how that's tracked.
     private func surfaceY(forSheepX sheepX: CGFloat, atOrBelow maxY: CGFloat) -> CGFloat {
-        let visible = screen.visibleFrame
-        var best = visible.minY
+        var best = GroundSurface.floorY(
+            screenFrame: screen.frame,
+            sheepX: sheepX,
+            sheepWidth: Self.displaySize,
+            dockRect: DockGeometry.current(on: screen)?.rect
+        )
 
         let frontmostPID = FrontmostApp.shared.pid
         if frontmostPID == 0 { return best }
