@@ -34,6 +34,33 @@ jobs:
           xcodebuild -version
           swift --version
 
+      - name: Run tests (JUnit XML for Buildkite Test Engine)
+        run: make test-junit
+
+      - name: Upload test results to Buildkite Test Engine
+        # Run on pass and fail so flaky/failing tests are tracked too.
+        if: always() && hashFiles('.build/junit.xml') != ''
+        env:
+          BUILDKITE_ANALYTICS_TOKEN: ${{ secrets.BUILDKITE_ANALYTICS_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BUILDKITE_ANALYTICS_TOKEN:-}" ]; then
+            echo "BUILDKITE_ANALYTICS_TOKEN not set; skipping upload."
+            exit 0
+          fi
+          curl --fail-with-body \
+            -X POST \
+            --form "data=@.build/junit.xml" \
+            --form "format=junit" \
+            --form "run_env[CI]=github_actions" \
+            --form "run_env[key]=$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
+            --form "run_env[number]=$GITHUB_RUN_NUMBER" \
+            --form "run_env[branch]=$GITHUB_REF_NAME" \
+            --form "run_env[commit_sha]=$GITHUB_SHA" \
+            --form "run_env[url]=https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --header "Authorization: Token token=\"$BUILDKITE_ANALYTICS_TOKEN\"" \
+            https://analytics-api.buildkite.com/v1/uploads
+
       - name: swift build
         run: swift build -c release
 

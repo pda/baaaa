@@ -29,7 +29,9 @@ ifneq ($(strip $(NOTARY_KEYCHAIN)),)
 NOTARY_SUBMIT_ARGS += --keychain "$(NOTARY_KEYCHAIN)"
 endif
 
-.PHONY: all build test run app zip notarize open verify sign-identities clean
+JUNIT_PATH ?= .build/junit.xml
+
+.PHONY: all build test test-junit run app zip notarize open verify sign-identities clean
 
 all: app
 
@@ -38,6 +40,16 @@ build:
 
 test:
 	swift test -c $(CONFIG)
+
+# Run the test suite and emit a JUnit XML report for Buildkite Test Engine.
+# Disables XCTest because, when both runners are enabled, --xunit-output is
+# claimed by XCTest and the swift-testing results are dropped.
+test-junit:
+	mkdir -p "$(dir $(JUNIT_PATH))"
+	rm -f "$(JUNIT_PATH)"
+	swift test -c $(CONFIG) \
+		--enable-swift-testing --disable-xctest \
+		--xunit-output "$(JUNIT_PATH)"
 
 run:
 	swift run -c $(CONFIG) $(APP_NAME)
