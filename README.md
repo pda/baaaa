@@ -33,6 +33,37 @@ open Baaaa.app    # or `make open`
 The bundle is registered as an `LSUIElement` (menu-bar accessory) so it
 won't clutter the Dock or `⌘-Tab` switcher.
 
+## Sign the app
+
+By default the bundle is signed ad hoc for local use:
+
+```sh
+make app
+make verify
+```
+
+To sign with a real Apple certificate, pass the identity name from your
+keychain:
+
+```sh
+make sign-identities
+make app SIGN_IDENTITY='Apple Development: Your Name (TEAMID)'
+make verify SIGN_IDENTITY='Apple Development: Your Name (TEAMID)'
+```
+
+`Apple Development` signatures are suitable for local development, but
+Gatekeeper will still reject them for general distribution. Use a
+`Developer ID Application` identity if you want `spctl` to pass and the
+app to open cleanly on other Macs.
+
+If you need custom entitlements, pass an entitlements plist too:
+
+```sh
+make app \
+  SIGN_IDENTITY='Apple Development: Your Name (TEAMID)' \
+  ENTITLEMENTS='Resources/YourApp.entitlements'
+```
+
 ## Controls
 
 Click and drag a sheep with the mouse to pick it up and reposition it;
