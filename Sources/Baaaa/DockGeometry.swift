@@ -167,9 +167,10 @@ enum GroundSurface {
         let desktopY = screenFrame.minY
         guard let dockRect else { return desktopY }
 
+        let supportSpan = topSupportSpan(for: dockRect)
         let sheepLeft = sheepX
         let sheepRight = sheepX + sheepWidth
-        let overlap = min(dockRect.maxX, sheepRight) - max(dockRect.minX, sheepLeft)
+        let overlap = min(supportSpan.upperBound, sheepRight) - max(supportSpan.lowerBound, sheepLeft)
         if overlap >= sheepWidth * minSupportFraction {
             return max(desktopY, dockRect.maxY)
         }
@@ -187,5 +188,14 @@ enum GroundSurface {
             width: size.width,
             height: size.height
         )
+    }
+
+    private static func topSupportSpan(for dockRect: CGRect) -> ClosedRange<CGFloat> {
+        guard dockRect.width > dockRect.height else {
+            return dockRect.minX...dockRect.maxX
+        }
+
+        let cornerInset = min(dockRect.height / 2, dockRect.width / 4)
+        return (dockRect.minX + cornerInset)...(dockRect.maxX - cornerInset)
     }
 }

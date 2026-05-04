@@ -40,6 +40,17 @@ do {
     try expectEqual(
         GroundSurface.floorY(
             screenFrame: screen,
+            sheepX: 350,
+            sheepWidth: 80,
+            dockRect: dock
+        ),
+        0,
+        "rounded dock corners should not count as a full-width flat platform"
+    )
+
+    try expectEqual(
+        GroundSurface.floorY(
+            screenFrame: screen,
             sheepX: 4,
             sheepWidth: 80,
             dockRect: CGRect(x: 0, y: 0, width: 87, height: 600)
