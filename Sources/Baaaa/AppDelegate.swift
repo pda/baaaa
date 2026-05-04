@@ -54,6 +54,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         derived from the classic Windows desktop pet of the same name.
         """
         alert.alertStyle = .informational
+        alert.icon = NSApp.applicationIconImage
         alert.runModal()
     }
 
