@@ -24,9 +24,10 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Select Xcode
-        # Xcode 15.x ships a Swift 5.9+ toolchain compatible with the
-        # macOS 13 deployment target declared in Package.swift.
-        run: sudo xcode-select -s /Applications/Xcode_15.4.app
+        # Xcode 16.x ships Swift 6.x, which is required for the
+        # `swift test --enable-swift-testing --disable-xctest
+        # --xunit-output` flags used by `make test-junit`.
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app
 
       - name: Show toolchain versions
         run: |
@@ -112,7 +113,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode_15.4.app
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app
 
       - name: Import Developer ID signing certificate
         run: |
