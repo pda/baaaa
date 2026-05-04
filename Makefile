@@ -45,6 +45,7 @@ app: build
 	mkdir -p "$(APP)/Contents/Resources"
 	cp "$(BUILD_DIR)/$(APP_NAME)" "$(APP)/Contents/MacOS/$(APP_NAME)"
 	cp -R "$(BUILD_DIR)/$(APP_NAME)_$(APP_NAME).bundle" "$(APP)/Contents/Resources/"
+	cp "Resources/AppIcon.icns" "$(APP)/Contents/Resources/AppIcon.icns"
 	cp Resources/Info.plist "$(APP)/Contents/Info.plist"
 	codesign $(SIGN_ARGS) "$(APP)"
 	@echo "Built $(APP)"
