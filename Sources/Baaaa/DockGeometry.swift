@@ -18,9 +18,11 @@ struct DockGeometry {
         let now = CFAbsoluteTimeGetCurrent()
         if now - lastRefresh >= refreshInterval {
             let primaryHeight = NSScreen.screens.first?.frame.height ?? screen.frame.height
-            if let rect = resolveRect(primaryHeight: primaryHeight) {
-                cachedRect = rect
-            }
+            cachedRect = nextCachedRect(
+                previous: cachedRect,
+                resolved: resolveRect(primaryHeight: primaryHeight),
+                autohides: autohides()
+            )
             lastRefresh = now
         }
 
@@ -53,6 +55,11 @@ struct DockGeometry {
         }
     }
 
+    static func nextCachedRect(previous: CGRect?, resolved: CGRect?, autohides: Bool) -> CGRect? {
+        if let resolved { return resolved }
+        return autohides ? nil : previous
+    }
+
     private static func isAccessibilityTrusted() -> Bool {
         if AXIsProcessTrusted() { return true }
         if !promptedForTrust {
@@ -60,6 +67,10 @@ struct DockGeometry {
             _ = AXIsProcessTrustedWithOptions([trustPromptKey: true] as CFDictionary)
         }
         return false
+    }
+
+    private static func autohides() -> Bool {
+        UserDefaults(suiteName: dockBundleID)?.bool(forKey: "autohide") ?? false
     }
 
     private static func listElements(withRole role: String, in element: AXUIElement, maxDepth: Int) -> [AXUIElement] {

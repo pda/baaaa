@@ -79,6 +79,14 @@ do {
         "side dock should expose its top edge as a finite platform"
     )
 
+    let previousDock = CGRect(x: 360, y: 0, width: 720, height: 95)
+    guard DockGeometry.nextCachedRect(previous: previousDock, resolved: nil, autohides: true) == nil else {
+        throw Failure(message: "auto-hidden Dock should clear the cached floor when AX resolution fails")
+    }
+    guard DockGeometry.nextCachedRect(previous: previousDock, resolved: nil, autohides: false) == previousDock else {
+        throw Failure(message: "non-hidden Dock should keep the last good rect across transient AX failures")
+    }
+
     let rect = GroundSurface.appKitRect(
         topLeft: CGPoint(x: 619, y: 1523),
         size: CGSize(width: 1642, height: 87),
