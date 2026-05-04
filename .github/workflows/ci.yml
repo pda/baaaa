@@ -70,15 +70,100 @@ jobs:
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: macos-14
+    environment: release
+    env:
+      APPLE_DEVELOPER_ID_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_P12_BASE64 }}
+      APPLE_DEVELOPER_ID_P12_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_P12_PASSWORD }}
+      APPLE_KEYCHAIN_PASSWORD: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
+      APPLE_NOTARY_API_KEY_BASE64: ${{ secrets.APPLE_NOTARY_API_KEY_BASE64 }}
+      APPLE_NOTARY_API_KEY_ID: ${{ secrets.APPLE_NOTARY_API_KEY_ID }}
+      APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+      APPLE_SIGN_IDENTITY: ${{ secrets.APPLE_SIGN_IDENTITY }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download build artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: Baaaa.app
-          path: dist
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_15.4.app
+
+      - name: Import Developer ID signing certificate
+        run: |
+          set -euo pipefail
+          KEYCHAIN_PATH="$RUNNER_TEMP/baaaa-signing.keychain-db"
+          P12_PATH="$RUNNER_TEMP/developer_id.p12"
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+          echo "P12_PATH=$P12_PATH" >> "$GITHUB_ENV"
+
+          echo -n "$APPLE_DEVELOPER_ID_P12_BASE64" | base64 --decode > "$P12_PATH"
+
+          security create-keychain -p "$APPLE_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$APPLE_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          security import "$P12_PATH" \
+            -k "$KEYCHAIN_PATH" \
+            -P "$APPLE_DEVELOPER_ID_P12_PASSWORD" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security
+
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s -k "$APPLE_KEYCHAIN_PASSWORD" \
+            "$KEYCHAIN_PATH"
+
+          # Prepend our keychain so codesign can find the identity.
+          security list-keychains -d user -s \
+            "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
+
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+
+      - name: Write notary API key
+        run: |
+          set -euo pipefail
+          NOTARY_KEY_PATH="$RUNNER_TEMP/notary_api_key.p8"
+          echo "NOTARY_KEY_PATH=$NOTARY_KEY_PATH" >> "$GITHUB_ENV"
+          echo -n "$APPLE_NOTARY_API_KEY_BASE64" | base64 --decode > "$NOTARY_KEY_PATH"
+          chmod 600 "$NOTARY_KEY_PATH"
+
+      - name: Build and sign Baaaa.app
+        run: |
+          make app \
+            SIGN_IDENTITY="$APPLE_SIGN_IDENTITY" \
+            SIGN_KEYCHAIN="$KEYCHAIN_PATH"
+
+      - name: Verify signature
+        run: |
+          codesign --verify --deep --strict --verbose=2 Baaaa.app
+          codesign -dv --verbose=4 Baaaa.app
+
+      - name: Notarize and staple
+        run: |
+          set -euo pipefail
+          rm -f Baaaa.zip
+          ditto -c -k --sequesterRsrc --keepParent Baaaa.app Baaaa.zip
+
+          xcrun notarytool submit Baaaa.zip \
+            --key "$NOTARY_KEY_PATH" \
+            --key-id "$APPLE_NOTARY_API_KEY_ID" \
+            --issuer "$APPLE_NOTARY_ISSUER_ID" \
+            --wait
+
+          xcrun stapler staple Baaaa.app
+          xcrun stapler validate Baaaa.app
+          spctl --assess --type execute --verbose=2 Baaaa.app
+
+      - name: Clean up signing material
+        if: always()
+        run: |
+          set +e
+          security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
+          rm -f "$P12_PATH" "$NOTARY_KEY_PATH"
+
+      - name: Package artifact
+        run: |
+          tar -czvf Baaaa.app.tar.gz Baaaa.app README.md
+          shasum -a 256 Baaaa.app.tar.gz | tee Baaaa.app.tar.gz.sha256
 
       - name: Create GitHub Release
         env:
@@ -92,21 +177,8 @@ jobs:
           Download \`Baaaa.app.tar.gz\`, extract it, and move \`Baaaa.app\`
           into \`/Applications\` (or wherever you like).
 
-          ### First launch (Gatekeeper)
-
-          Baaaa is **ad-hoc signed only** — there is no paid Apple
-          Developer ID behind it, so macOS will refuse to open it on
-          first launch with "damaged" or "unidentified developer".
-
-          To get past this, either:
-
-          - Right-click \`Baaaa.app\` → **Open**, then confirm in the
-            dialog, **or**
-          - Strip the quarantine attribute from a terminal:
-
-            \`\`\`sh
-            xattr -dr com.apple.quarantine /Applications/Baaaa.app
-            \`\`\`
+          Signed with a Developer ID certificate and notarized by Apple,
+          so Gatekeeper should let it launch with a normal double-click.
 
           ### Licensing
 
@@ -119,5 +191,5 @@ jobs:
           gh release create "$TAG" \
             --title "Baaaa $TAG" \
             --notes-file "$NOTES_FILE" \
-            dist/Baaaa.app.tar.gz \
-            dist/Baaaa.app.tar.gz.sha256
+            Baaaa.app.tar.gz \
+            Baaaa.app.tar.gz.sha256
