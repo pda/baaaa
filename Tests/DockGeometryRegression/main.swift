@@ -87,6 +87,13 @@ do {
         throw Failure(message: "non-hidden Dock should keep the last good rect across transient AX failures")
     }
 
+    guard SurfaceState.shouldFall(currentY: 95, surfaceY: 0) else {
+        throw Failure(message: "standing sheep should start falling as soon as their surface disappears")
+    }
+    guard !SurfaceState.shouldFall(currentY: 95, surfaceY: 94.6) else {
+        throw Failure(message: "tiny surface jitter should not force a fall")
+    }
+
     let rect = GroundSurface.appKitRect(
         topLeft: CGPoint(x: 619, y: 1523),
         size: CGSize(width: 1642, height: 87),

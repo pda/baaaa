@@ -175,6 +175,8 @@ final class SheepController: SheepDragDelegate {
     }
 
     private func stepWalking() {
+        if !refreshStandingSurface() { return }
+
         // Idle pause between bursts of walking.
         if idleTicks > 0 {
             idleTicks -= 1
@@ -194,22 +196,7 @@ final class SheepController: SheepDragDelegate {
             direction = -1
         }
 
-        // Re-evaluate the surface at our new column. We allow a small
-        // step-up tolerance so the sheep can ride a window that
-        // shifted slightly upward, but if it dropped away we start
-        // falling.
-        let surface = surfaceY(
-            forSheepX: x,
-            atOrBelow: y + Self.stepUpTolerance
-        )
-        if surface < y - 0.5 {
-            mode = .falling
-            vy = 0
-            view.setSprite(index: SpriteIndex.fall, flipped: direction > 0)
-            return
-        } else {
-            y = surface
-        }
+        if !refreshStandingSurface() { return }
 
         // Animate the walk cycle.
         let frameIndex = SpriteIndex.walk[(tick / 6) % SpriteIndex.walk.count]
@@ -222,6 +209,22 @@ final class SheepController: SheepDragDelegate {
         if Int.random(in: 0..<300) == 0 {
             idleTicks = Int.random(in: 15...60)
         }
+    }
+
+    private func refreshStandingSurface() -> Bool {
+        let surface = surfaceY(
+            forSheepX: x,
+            atOrBelow: y + Self.stepUpTolerance
+        )
+        if SurfaceState.shouldFall(currentY: y, surfaceY: surface) {
+            mode = .falling
+            vy = 0
+            view.setSprite(index: SpriteIndex.fall, flipped: direction > 0)
+            return false
+        }
+
+        y = surface
+        return true
     }
 
     private func stepDragging() {

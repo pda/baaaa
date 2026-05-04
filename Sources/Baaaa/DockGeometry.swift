@@ -212,3 +212,9 @@ enum GroundSurface {
         return cornerCenterY + dy
     }
 }
+
+enum SurfaceState {
+    static func shouldFall(currentY: CGFloat, surfaceY: CGFloat) -> Bool {
+        surfaceY < currentY - 0.5
+    }
+}
