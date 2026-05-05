@@ -40,7 +40,17 @@ The source sheet is `Sources/Baaaa/Resources/esheep.png`. It is a `16 x 11` grid
 
 These are the upstream sequences prepared for Baaaa idle pauses.
 
-At the moment, Baaaa is intentionally running only one of them live at a time for visual verification. The current live selection is `Head Turn`.
+Currently live in the branch:
+
+- `Head Turn`
+- `Sleepy Nod`
+- `Lie-Down Sleep`
+- `Nibble`
+
+Still deferred for later review:
+
+- `Look Down`
+- `Pee / Wee`
 
 ### 1. Head Turn
 
@@ -74,7 +84,7 @@ At the moment, Baaaa is intentionally running only one of them live at a time fo
 - Upstream exit frames: `8, 7, 6`
 - Local sequence: `6, 7, 8, 8` + a bounded number of `7, 8, 8` loops + `8, 7, 6, 3`
 - Visual effect: a brief drowsy pause during a long idle
-- Note: this is not currently enabled live
+- This is currently enabled live
 
 ## Other Good Candidates
 
@@ -89,7 +99,11 @@ These are worth porting later.
 
 - `sleep1a` (`id=15`): `3, 107, 108, 107, 108, 107, 31, 32, 33, 0, 1`
 - `sleep1b` (`id=16`): `0, 80, 79, 78, 77, 37, 38, 39, 38, 37, 6`
-- Best bigger upgrade for long rests
+- Local behaviour: stateful sleep entry + a sustained `0, 1` lying-down loop + wake-up sequence + `3`
+- Once chosen, the sheep stays asleep for an extended stretch, then enters a cooldown before it can lie down again
+- Dragging counts as an immediate wake/cancel for the current sleep
+- Visual effect: the sheep settles down for a proper nap during a long pause
+- This is currently enabled live
 
 ### Run Burst
 
@@ -106,7 +120,9 @@ These are worth porting later.
 ### Nibble
 
 - `eat` (`id=26`): `6, 6, 6, 6, 58, 59, 59, 60, 61, 60, 61, 6`
-- Good rare idle behaviour
+- Local sequence: setup + bounded chew loops + `6, 3`
+- Visual effect: a small nibble/chew idle action
+- This is currently enabled live
 
 ## Environment-Coupled Upstream Sets
 
