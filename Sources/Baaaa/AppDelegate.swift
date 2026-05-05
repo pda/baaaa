@@ -60,7 +60,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func spawnSheep() {
         guard let screen = NSScreen.main else { return }
-        let controller = SheepController(screen: screen)
+        let controller = SheepController(screen: screen) { [weak self] sheepID in
+            self?.sheep.compactMap { other in
+                guard other.id != sheepID else { return nil }
+                return other.awarenessObservation
+            } ?? []
+        }
         sheep.append(controller)
         controller.start()
     }
