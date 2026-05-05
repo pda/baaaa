@@ -84,19 +84,23 @@ jobs:
           codesign -dv Baaaa.app
 
       - name: Package artifact
-        # Always produce the tarball so the build job's artifact can be
-        # downloaded for inspection from any push, not just tags.
+        # ditto -c -k produces a zip that preserves macOS bundle metadata
+        # (xattrs, code signature, symlinks). Crucially the archive
+        # contains a single top-level Baaaa.app/, so Archive Utility
+        # extracts it directly instead of wrapping it in a folder named
+        # "Baaaa.app" (which Finder would then mistake for a malformed
+        # bundle and Gatekeeper would reject as "damaged or incomplete").
         run: |
-          tar -czvf Baaaa.app.tar.gz Baaaa.app README.md
-          shasum -a 256 Baaaa.app.tar.gz | tee Baaaa.app.tar.gz.sha256
+          ditto -c -k --sequesterRsrc --keepParent Baaaa.app Baaaa.zip
+          shasum -a 256 Baaaa.zip | tee Baaaa.zip.sha256
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: Baaaa.app
           path: |
-            Baaaa.app.tar.gz
-            Baaaa.app.tar.gz.sha256
+            Baaaa.zip
+            Baaaa.zip.sha256
           if-no-files-found: error
           retention-days: 14
 
@@ -196,9 +200,18 @@ jobs:
           rm -f "$P12_PATH" "$NOTARY_KEY_PATH"
 
       - name: Package artifact
+        # Use ditto-zip (Apple's recommended container for signed and
+        # notarized .app bundles): preserves bundle metadata and yields
+        # a single top-level Baaaa.app/ entry so Safari + Archive
+        # Utility extract the bundle directly. The previous
+        # `tar -czvf Baaaa.app.tar.gz Baaaa.app README.md` archive had
+        # multiple top-level entries, so Archive Utility wrapped the
+        # extraction in a folder named "Baaaa.app" (after the archive),
+        # which Finder then mistook for a malformed app bundle and
+        # Gatekeeper rejected as "damaged or incomplete".
         run: |
-          tar -czvf Baaaa.app.tar.gz Baaaa.app README.md
-          shasum -a 256 Baaaa.app.tar.gz | tee Baaaa.app.tar.gz.sha256
+          ditto -c -k --sequesterRsrc --keepParent Baaaa.app Baaaa.zip
+          shasum -a 256 Baaaa.zip | tee Baaaa.zip.sha256
 
       - name: Create GitHub Release
         env:
@@ -209,8 +222,8 @@ jobs:
           cat > "$NOTES_FILE" <<EOF
           ## Baaaa $TAG
 
-          Download \`Baaaa.app.tar.gz\`, extract it, and move \`Baaaa.app\`
-          into \`/Applications\` (or wherever you like).
+          Download \`Baaaa.zip\`, double-click to extract, and move
+          \`Baaaa.app\` into \`/Applications\` (or wherever you like).
 
           Signed with a Developer ID certificate and notarized by Apple,
           so Gatekeeper should let it launch with a normal double-click.
@@ -218,7 +231,7 @@ jobs:
           ### Licensing
 
           Sprite art is **eSheep** by Adriano Petrucci, distributed
-          under the GNU GPL-3.0. See the bundled \`README.md\` and
+          under the GNU GPL-3.0. See the repository \`README.md\` and
           <https://github.com/Adrianotiger/desktopPet> for source and
           licence terms; this release inherits GPL-3.0.
           EOF
@@ -226,5 +239,5 @@ jobs:
           gh release create "$TAG" \
             --title "Baaaa $TAG" \
             --notes-file "$NOTES_FILE" \
-            Baaaa.app.tar.gz \
-            Baaaa.app.tar.gz.sha256
+            Baaaa.zip \
+            Baaaa.zip.sha256
