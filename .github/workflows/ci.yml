@@ -8,6 +8,8 @@ on:
 
 permissions:
   contents: write
+  # Allow jobs to mint OIDC tokens for the Buildkite Test Engine upload.
+  id-token: write
 
 # Opt the Node.js-based actions (checkout, upload-artifact,
 # download-artifact, …) onto Node 24 ahead of the June 2026 cutover.
@@ -43,19 +45,36 @@ jobs:
         # Run on pass and fail so flaky/failing tests are tracked too.
         # hashFiles() does not descend into dot-directories like .build/,
         # so the file existence check is done in-script instead.
+        #
+        # Auth uses a GitHub Actions OIDC JWT (no long-lived secret):
+        # the workflow mints a token whose `aud` claim matches the
+        # Buildkite Test Engine suite URL, and Buildkite verifies it
+        # against the suite's OIDC policy.
         if: always()
-        env:
-          BUILDKITE_ANALYTICS_TOKEN: ${{ secrets.BUILDKITE_ANALYTICS_TOKEN }}
         run: |
           set -euo pipefail
           if [ ! -s .build/junit.xml ]; then
             echo ".build/junit.xml missing or empty; skipping upload."
             exit 0
           fi
-          if [ -z "${BUILDKITE_ANALYTICS_TOKEN:-}" ]; then
-            echo "BUILDKITE_ANALYTICS_TOKEN not set; skipping upload."
+          if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] || [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
+            echo "GitHub OIDC env vars not set; skipping upload."
             exit 0
           fi
+
+          AUDIENCE="https://buildkite.com/organizations/pda/analytics/suites/baaaa"
+          OIDC_JWT="$(
+            curl --fail-with-body --silent --show-error \
+              -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+              -H "Accept: application/json; api-version=2.0" \
+              "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${AUDIENCE}" \
+              | jq -r .value
+          )"
+          if [ -z "$OIDC_JWT" ] || [ "$OIDC_JWT" = "null" ]; then
+            echo "Failed to mint GitHub OIDC token; skipping upload."
+            exit 1
+          fi
+
           curl --fail-with-body \
             -X POST \
             --form "data=@.build/junit.xml" \
@@ -66,7 +85,7 @@ jobs:
             --form "run_env[branch]=$GITHUB_REF_NAME" \
             --form "run_env[commit_sha]=$GITHUB_SHA" \
             --form "run_env[url]=https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
-            --header "Authorization: Token token=\"$BUILDKITE_ANALYTICS_TOKEN\"" \
+            --header "Authorization: Bearer $OIDC_JWT" \
             https://analytics-api.buildkite.com/v1/uploads
 
       - name: swift build
