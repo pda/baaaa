@@ -36,6 +36,10 @@ final class SheepController: SheepDragDelegate {
     /// Rare longer pauses so a sheep occasionally lingers in place.
     private static let longIdlePauseRange = 120...300
 
+    /// Probe distance ahead of the sheep when deciding whether to peer
+    /// over the edge of the current ledge.
+    private static let edgeLookAhead: CGFloat = displaySize * 0.45
+
     // MARK: State
 
     /// Minimum landing speed (in points per tick) that triggers the
@@ -63,6 +67,12 @@ final class SheepController: SheepDragDelegate {
     private var idleTicks: Int = 0
     /// State machine for idle blinks between short standing pauses.
     private var blink: BlinkState
+    /// Optional multi-frame idle action such as scratching or looking down.
+    private var idleAction: IdleActionState?
+    /// Sleep is rarer and more stateful than the other idle actions:
+    /// once a sheep lies down, keep it asleep for a while, then block
+    /// immediate repeat sleeps with a cooldown.
+    private var sleepBehaviour = SleepBehaviourState(style: IdleActionStyles.sleep)
 
     /// Position into `SpriteIndex.dazed` while in the dazed mode.
     private var dazedStep: Int = 0
@@ -123,6 +133,7 @@ final class SheepController: SheepDragDelegate {
 
     private func step() {
         tick &+= 1
+        sleepBehaviour.advanceCooldown()
         switch mode {
         case .falling: stepFalling()
         case .walking: stepWalking()
@@ -156,12 +167,12 @@ final class SheepController: SheepDragDelegate {
                 enterDazed()
             } else {
                 mode = .walking
-                idleTicks = Int.random(in: 6...30)
-                view.setSprite(index: standingSpriteIndex(), flipped: direction > 0)
+                beginIdlePause(Int.random(in: 6...30))
+                view.setSprite(index: idleSpriteIndex() ?? standingSpriteIndex(), flipped: direction > 0)
             }
         } else {
             y = nextY
-            interruptBlinkCycle()
+            disturbIdleAction()
             view.setSprite(index: SpriteIndex.fall, flipped: direction > 0)
         }
     }
@@ -181,8 +192,8 @@ final class SheepController: SheepDragDelegate {
         if dazedStep >= SpriteIndex.dazed.count {
             // Recovery complete — resume normal walking.
             mode = .walking
-            idleTicks = Int.random(in: 6...30)
-            view.setSprite(index: standingSpriteIndex(), flipped: direction > 0)
+            beginIdlePause(Int.random(in: 6...30))
+            view.setSprite(index: idleSpriteIndex() ?? standingSpriteIndex(), flipped: direction > 0)
             return
         }
         let frame = SpriteIndex.dazed[dazedStep]
@@ -194,13 +205,24 @@ final class SheepController: SheepDragDelegate {
         if !refreshStandingSurface() { return }
 
         // Idle pause between bursts of walking.
-        if idleTicks > 0 {
-            idleTicks -= 1
-            view.setSprite(index: standingSpriteIndex(), flipped: direction > 0)
-            return
+        if idleTicks > 0 || idleAction != nil {
+            if idleTicks > 0 {
+                idleTicks -= 1
+            }
+
+            if let sprite = idleSpriteIndex() {
+                view.setSprite(index: sprite, flipped: direction > 0)
+                return
+            }
+
+            if idleTicks > 0 {
+                view.setSprite(index: standingSpriteIndex(), flipped: direction > 0)
+                return
+            }
         }
 
         blink.endedStandingPose()
+        idleAction = nil
         x += direction * Self.walkSpeed
 
         // Bounce off horizontal screen edges.
@@ -225,9 +247,9 @@ final class SheepController: SheepDragDelegate {
         }
         if Int.random(in: 0..<300) == 0 {
             if Int.random(in: 0..<5) == 0 {
-                idleTicks = Int.random(in: Self.longIdlePauseRange)
+                beginIdlePause(Int.random(in: Self.longIdlePauseRange))
             } else {
-                idleTicks = Int.random(in: Self.idlePauseRange)
+                beginIdlePause(Int.random(in: Self.idlePauseRange))
             }
         }
     }
@@ -240,7 +262,7 @@ final class SheepController: SheepDragDelegate {
         if SurfaceState.shouldFall(currentY: y, surfaceY: surface) {
             mode = .falling
             vy = 0
-            interruptBlinkCycle()
+            disturbIdleAction()
             view.setSprite(index: SpriteIndex.fall, flipped: direction > 0)
             return false
         }
@@ -263,7 +285,7 @@ final class SheepController: SheepDragDelegate {
         mode = .dragging
         vy = 0
         idleTicks = 0
-        interruptBlinkCycle()
+        disturbIdleAction()
         dragOffset = NSSize(width: globalPoint.x - x, height: globalPoint.y - y)
         view.setSprite(index: SpriteIndex.drag[0], flipped: direction > 0)
     }
@@ -289,12 +311,74 @@ final class SheepController: SheepDragDelegate {
         window.setFrameOrigin(NSPoint(x: x, y: y))
     }
 
-    private func interruptBlinkCycle() {
+    private func disturbIdleAction() {
         blink.interrupted()
+        if idleAction?.isSleep == true {
+            sleepBehaviour.startCooldown()
+        }
+        idleAction = nil
     }
 
     private func standingSpriteIndex() -> Int {
         blink.standingSpriteIndex()
+    }
+
+    private func idleSpriteIndex() -> Int? {
+        if var idleAction {
+            if let sprite = idleAction.nextSpriteIndex() {
+                self.idleAction = idleAction
+                return sprite
+            }
+            if idleAction.isSleep {
+                sleepBehaviour.startCooldown()
+            }
+            self.idleAction = nil
+        }
+        return nil
+    }
+
+    private func beginIdlePause(_ ticks: Int) {
+        idleTicks = ticks
+        idleAction = chooseIdleAction(forPauseTicks: ticks)
+    }
+
+    private func chooseIdleAction(forPauseTicks ticks: Int) -> IdleActionState? {
+        let candidates = IdleActionSelection.enabledForBranch.compactMap { kind -> IdleActionState? in
+            switch kind {
+            case .headTurn:
+                if ticks >= 120, Int.random(in: IdleActionSelection.headTurnChance) == 1 {
+                    return IdleActionState(frames: IdleActionStyles.headTurn)
+                }
+            case .lookDown:
+                if ticks >= IdleActionStyles.totalTicks(IdleActionStyles.lookDown), isNearLeadingEdge() {
+                    return IdleActionState(frames: IdleActionStyles.lookDown)
+                }
+            case .doze:
+                if ticks >= 140 {
+                    return IdleActionState(frames: IdleActionStyles.doze(fittingWithin: ticks))
+                }
+            case .sleep:
+                if sleepBehaviour.canStartSleep(forPauseTicks: ticks) {
+                    return IdleActionState(sleepStyle: IdleActionStyles.sleep)
+                }
+            case .eat:
+                if ticks >= 90 {
+                    return IdleActionState(frames: IdleActionStyles.eat(fittingWithin: ticks))
+                }
+            }
+            return nil
+        }
+
+        return candidates.randomElement()
+    }
+
+    private func isNearLeadingEdge() -> Bool {
+        let probeX = x + (direction * Self.edgeLookAhead)
+        let probeSurface = surfaceY(
+            forSheepX: probeX,
+            atOrBelow: y + Self.stepUpTolerance
+        )
+        return SurfaceState.shouldFall(currentY: y, surfaceY: probeSurface)
     }
 
     /// Find the y-coordinate (AppKit, bottom-left origin) of the
