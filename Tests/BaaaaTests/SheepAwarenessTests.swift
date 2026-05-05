@@ -111,6 +111,16 @@ import Testing
             walkSpeed: 1,
             nextConsiderationTicks: { _ in 1 },
             nextPercent: { _ in 99 }
+        ) == .walkNormally
+    )
+
+    #expect(
+        awareness.step(
+            sheep: sheep,
+            others: [other],
+            walkSpeed: 1,
+            nextConsiderationTicks: { _ in 1 },
+            nextPercent: { _ in 99 }
         ) == .stop(atX: 101)
     )
 }
