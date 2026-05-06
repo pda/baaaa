@@ -2,6 +2,17 @@ import AppKit
 import ApplicationServices
 import CoreGraphics
 
+enum SurfaceKind {
+    case desktop
+    case dock
+    case window
+}
+
+struct SurfaceHit {
+    let y: CGFloat
+    let kind: SurfaceKind
+}
+
 struct DockGeometry {
     let rect: CGRect
 
@@ -167,21 +178,40 @@ struct DockGeometry {
 }
 
 enum GroundSurface {
+    static func floor(
+        screenFrame: CGRect,
+        sheepX: CGFloat,
+        sheepWidth: CGFloat,
+        dockRect: CGRect?
+    ) -> SurfaceHit {
+        let desktopY = screenFrame.minY
+        guard let dockRect else {
+            return SurfaceHit(y: desktopY, kind: .desktop)
+        }
+
+        let sheepCenterX = sheepX + (sheepWidth / 2)
+        guard sheepCenterX >= dockRect.minX, sheepCenterX <= dockRect.maxX else {
+            return SurfaceHit(y: desktopY, kind: .desktop)
+        }
+
+        return SurfaceHit(
+            y: max(desktopY, roundedTopY(for: dockRect, at: sheepCenterX)),
+            kind: .dock
+        )
+    }
+
     static func floorY(
         screenFrame: CGRect,
         sheepX: CGFloat,
         sheepWidth: CGFloat,
         dockRect: CGRect?
     ) -> CGFloat {
-        let desktopY = screenFrame.minY
-        guard let dockRect else { return desktopY }
-
-        let sheepCenterX = sheepX + (sheepWidth / 2)
-        guard sheepCenterX >= dockRect.minX, sheepCenterX <= dockRect.maxX else {
-            return desktopY
-        }
-
-        return max(desktopY, roundedTopY(for: dockRect, at: sheepCenterX))
+        floor(
+            screenFrame: screenFrame,
+            sheepX: sheepX,
+            sheepWidth: sheepWidth,
+            dockRect: dockRect
+        ).y
     }
 
     static func appKitRect(
@@ -216,5 +246,12 @@ enum GroundSurface {
 enum SurfaceState {
     static func shouldFall(currentY: CGFloat, surfaceY: CGFloat) -> Bool {
         surfaceY < currentY - 0.5
+    }
+
+    static func shouldFall(current: SurfaceHit, next: SurfaceHit) -> Bool {
+        if current.kind == .dock, next.kind == .dock {
+            return false
+        }
+        return shouldFall(currentY: current.y, surfaceY: next.y)
     }
 }

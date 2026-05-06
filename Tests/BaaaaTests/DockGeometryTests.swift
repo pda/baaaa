@@ -71,6 +71,20 @@ import Testing
     #expect(SurfaceState.shouldFall(currentY: 95, surfaceY: 0))
 }
 
+@Test func surfaceStateKeepsWalkingDownDockCorner() {
+    #expect(!SurfaceState.shouldFall(
+        current: SurfaceHit(y: 57.1954, kind: .dock),
+        next: SurfaceHit(y: 47.5, kind: .dock)
+    ))
+}
+
+@Test func surfaceStateStillFallsWhenLeavingDock() {
+    #expect(SurfaceState.shouldFall(
+        current: SurfaceHit(y: 57.1954, kind: .dock),
+        next: SurfaceHit(y: 0, kind: .desktop)
+    ))
+}
+
 @Test func surfaceStateIgnoresTinyJitter() {
     #expect(!SurfaceState.shouldFall(currentY: 95, surfaceY: 94.6))
 }
