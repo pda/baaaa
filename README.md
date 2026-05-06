@@ -1,8 +1,9 @@
 # Baaaa 🐑
 
 A modern macOS desktop pet that walks around your screen, falls under
-gravity, and lands on top of your application windows — inspired by the
-classic Windows eSheep / [desktopPet](https://adrianotiger.github.io/desktopPet/).
+gravity, and lands on top of your application windows — a love letter
+to the classic Windows "screen mate" sheep that wandered countless
+desktops in the 1990s.
 
 Written in Swift + AppKit. No Xcode required to build — uses Swift
 Package Manager and a small Makefile to assemble a `.app` bundle.
@@ -131,10 +132,48 @@ Click the 🐑 in the menu bar for:
   windows returned by `CGWindowListCopyWindowInfo` on modern macOS
   with Stage Manager and multiple Spaces.
 
-## Credits & licensing
+## Credits, history & licensing
 
-Sprite art: **eSheep** by Adriano Petrucci — see
-<https://github.com/Adrianotiger/desktopPet>. The eSheep project and its
-art are distributed under the GNU GPL; the bundled `esheep.png` sprite
-sheet inherits that licence. The Swift code in this repository is
-provided under the same terms.
+Baaaa stands on the shoulders of a long line of "screen mate" sheep,
+each one redrawing or reimplementing the work that came before it.
+
+- **Tatsutoshi Nomura — *Stray Sheep* (1994).** The character was
+  created by Japanese animator Tatsutoshi Nomura for the *Stray Sheep*
+  series of five-minute animated shorts shown at midnight on
+  [Fuji Television](https://www.fujitv.co.jp/straysheep/). The sheep
+  later spawned books, merchandise, and even PlayStation games.
+- **Village Center, Inc. — *Stray Sheep: The Screen Mate* (1995).**
+  Under licence from Fuji TV,
+  [Village Center](http://web.archive.org/web/20060625192044/www.villagecenter.co.jp/english/poe.html)
+  published the original 16-bit Windows 3.1 / 95 retail "Screen Mate"
+  that walks on top of your windows, falls off the edges, and otherwise
+  wanders your desktop. This is the program that defined the genre, and
+  every later sheep — including this one — is descended from it. It was
+  variously known as Stray Sheep, Sheep, Scmpoo, and Screen Mate Poo.
+- **Sheep / Screen Mate Poo (English release).** The English-language
+  port of the Village Center program is the version most Western users
+  remember; the
+  [mentadd.com sheep page](https://mentadd.com/sheep/) preserves the
+  original installer, its help file, and a careful accounting of the
+  copyright information that later releases tended to discard.
+- **Adriano Petrucci — *eSheep / desktopPet* (2005, ongoing).**
+  Adriano Petrucci's
+  [eSheep / desktopPet](https://adrianotiger.github.io/desktopPet/)
+  project rebuilt the screen mate as a 64-bit Windows application so
+  the sheep could keep walking on modern hardware. The bundled
+  `esheep.png` sprite sheet in this repository — a 16×11 grid of 40×40
+  tiles, with magenta as the transparent colour — comes from that
+  project (image rip credited there to *LiL_Stenly*), and the
+  *fall soft* dazed-after-landing animation sequence in Baaaa was
+  lifted directly from eSheep's animation script.
+
+Baaaa itself is just a fresh Swift + AppKit reimplementation of the
+same idea for macOS — none of the original Village Center code is
+present, but the behaviour, the silhouette, and the sprite sheet all
+descend from the work above. All credit for the character, art, and
+the screen-mate concept belongs to those creators; any bugs in this
+port are mine.
+
+The eSheep project and its sprite art are distributed under the
+**GNU GPL**, so the bundled `esheep.png` inherits that licence and the
+Swift code in this repository is released under the same terms.
