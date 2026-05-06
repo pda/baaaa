@@ -40,6 +40,11 @@ final class SheepController: SheepDragDelegate {
     /// over the edge of the current ledge.
     private static let edgeLookAhead: CGFloat = displaySize * 0.45
 
+    /// Brief pause after deciding to turn away from another sheep.
+    private static let encounterTurnPauseRange = 12...24
+
+    private static var nextID: Int = 0
+
     // MARK: State
 
     /// Minimum landing speed (in points per tick) that triggers the
@@ -50,7 +55,9 @@ final class SheepController: SheepDragDelegate {
     private let window: SheepWindow
     private let view: SheepView
     private let screen: NSScreen
+    private let nearbySheep: (Int) -> [SheepObservation]
     private var timer: Timer?
+    let id: Int
 
     private enum Mode { case falling, walking, dragging, dazed }
     private var mode: Mode = .falling
@@ -73,6 +80,8 @@ final class SheepController: SheepDragDelegate {
     /// once a sheep lies down, keep it asleep for a while, then block
     /// immediate repeat sleeps with a cooldown.
     private var sleepBehaviour = SleepBehaviourState(style: IdleActionStyles.sleep)
+    /// Tracks short face-to-face pauses with nearby sheep.
+    private var awareness = SheepAwareness()
 
     /// Position into `SpriteIndex.dazed` while in the dazed mode.
     private var dazedStep: Int = 0
@@ -85,8 +94,11 @@ final class SheepController: SheepDragDelegate {
 
     // MARK: Init
 
-    init(screen: NSScreen) {
+    init(screen: NSScreen, nearbySheep: @escaping (Int) -> [SheepObservation] = { _ in [] }) {
         self.screen = screen
+        self.nearbySheep = nearbySheep
+        Self.nextID += 1
+        self.id = Self.nextID
         let size = CGSize(width: Self.displaySize, height: Self.displaySize)
         self.window = SheepWindow(size: size)
         self.view = SheepView(frame: NSRect(origin: .zero, size: size))
@@ -157,6 +169,7 @@ final class SheepController: SheepDragDelegate {
             y = surface
             let landingSpeed = abs(vy)
             vy = 0
+            awareness.reset()
             // Pick a new direction occasionally on landing.
             if Bool.random() { direction = -direction }
 
@@ -178,6 +191,7 @@ final class SheepController: SheepDragDelegate {
     }
 
     private func enterDazed() {
+        awareness.reset()
         mode = .dazed
         dazedStep = 0
         let frame = SpriteIndex.dazed[0]
@@ -204,8 +218,41 @@ final class SheepController: SheepDragDelegate {
     private func stepWalking() {
         if !refreshStandingSurface() { return }
 
-        // Idle pause between bursts of walking.
-        if idleTicks > 0 || idleAction != nil {
+        let currentObservation = SheepObservation(
+            id: id,
+            x: x,
+            y: y,
+            width: Self.displaySize,
+            direction: direction
+        )
+        let awarenessDecision = awareness.step(
+            sheep: currentObservation,
+            others: nearbySheep(id),
+            walkSpeed: idleTicks > 0 ? 0 : Self.walkSpeed
+        )
+        switch awarenessDecision {
+        case let .stop(stopX):
+            x = stopX
+            view.setSprite(index: standingSpriteIndex(), flipped: direction > 0)
+            return
+
+        case .reverseDirection:
+            direction = -direction
+            idleTicks = Int.random(in: Self.encounterTurnPauseRange)
+            view.setSprite(index: standingSpriteIndex(), flipped: direction > 0)
+            return
+
+        case .passThroughEncounter:
+            break
+
+        case .walkNormally:
+            break
+        }
+
+        // Idle pause between bursts of walking. Suspended while we're
+        // clipping past another sheep so the encounter doesn't lock us
+        // mid-stride.
+        if awarenessDecision == .walkNormally, idleTicks > 0 || idleAction != nil {
             if idleTicks > 0 {
                 idleTicks -= 1
             }
@@ -262,6 +309,7 @@ final class SheepController: SheepDragDelegate {
         if SurfaceState.shouldFall(currentY: y, surfaceY: surface) {
             mode = .falling
             vy = 0
+            awareness.reset()
             disturbIdleAction()
             view.setSprite(index: SpriteIndex.fall, flipped: direction > 0)
             return false
@@ -285,6 +333,7 @@ final class SheepController: SheepDragDelegate {
         mode = .dragging
         vy = 0
         idleTicks = 0
+        awareness.reset()
         disturbIdleAction()
         dragOffset = NSSize(width: globalPoint.x - x, height: globalPoint.y - y)
         view.setSprite(index: SpriteIndex.drag[0], flipped: direction > 0)
@@ -317,6 +366,17 @@ final class SheepController: SheepDragDelegate {
             sleepBehaviour.startCooldown()
         }
         idleAction = nil
+    }
+
+    var awarenessObservation: SheepObservation? {
+        guard mode == .walking else { return nil }
+        return SheepObservation(
+            id: id,
+            x: x,
+            y: y,
+            width: Self.displaySize,
+            direction: direction
+        )
     }
 
     private func standingSpriteIndex() -> Int {
