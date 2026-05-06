@@ -223,7 +223,8 @@ final class SheepController: SheepDragDelegate {
             x: x,
             y: y,
             width: Self.displaySize,
-            direction: direction
+            direction: direction,
+            isMoving: idleTicks == 0 || awareness.isEngaged
         )
         let awarenessDecision = awareness.step(
             sheep: currentObservation,
@@ -375,7 +376,8 @@ final class SheepController: SheepDragDelegate {
             x: x,
             y: y,
             width: Self.displaySize,
-            direction: direction
+            direction: direction,
+            isMoving: idleTicks == 0 || awareness.isEngaged
         )
     }
 
