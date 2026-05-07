@@ -164,7 +164,7 @@ final class SheepController: SheepDragDelegate {
         // can never "overshoot" a window top in one tick: if our
         // proposed move would carry us through a window's top edge,
         // we land on it instead.
-        let surface = surfaceY(forSheepX: x, atOrBelow: y)
+        let surface = surfaceHit(forSheepX: x, atOrBelow: y).y
         if nextY <= surface {
             y = surface
             let landingSpeed = abs(vy)
@@ -216,7 +216,7 @@ final class SheepController: SheepDragDelegate {
     }
 
     private func stepWalking() {
-        if !refreshStandingSurface() { return }
+        guard let currentSurface = refreshStandingSurface() else { return }
 
         let currentObservation = SheepObservation(
             id: id,
@@ -283,7 +283,7 @@ final class SheepController: SheepDragDelegate {
             direction = -1
         }
 
-        if !refreshStandingSurface() { return }
+        guard refreshStandingSurface(previousSurface: currentSurface) != nil else { return }
 
         // Animate the walk cycle.
         let frameIndex = SpriteIndex.walk[(tick / 6) % SpriteIndex.walk.count]
@@ -302,22 +302,27 @@ final class SheepController: SheepDragDelegate {
         }
     }
 
-    private func refreshStandingSurface() -> Bool {
-        let surface = surfaceY(
+    private func refreshStandingSurface(previousSurface: SurfaceHit? = nil) -> SurfaceHit? {
+        let surface = surfaceHit(
             forSheepX: x,
             atOrBelow: y + Self.stepUpTolerance
         )
-        if SurfaceState.shouldFall(currentY: y, surfaceY: surface) {
+        let shouldFall = if let previousSurface {
+            SurfaceState.shouldFall(current: previousSurface, next: surface)
+        } else {
+            SurfaceState.shouldFall(currentY: y, surfaceY: surface.y)
+        }
+        if shouldFall {
             mode = .falling
             vy = 0
             awareness.reset()
             disturbIdleAction()
             view.setSprite(index: SpriteIndex.fall, flipped: direction > 0)
-            return false
+            return nil
         }
 
-        y = surface
-        return true
+        y = surface.y
+        return surface
     }
 
     private func stepDragging() {
@@ -436,19 +441,19 @@ final class SheepController: SheepDragDelegate {
 
     private func isNearLeadingEdge() -> Bool {
         let probeX = x + (direction * Self.edgeLookAhead)
-        let probeSurface = surfaceY(
+        let probeSurface = surfaceHit(
             forSheepX: probeX,
             atOrBelow: y + Self.stepUpTolerance
-        )
+        ).y
         return SurfaceState.shouldFall(currentY: y, surfaceY: probeSurface)
     }
 
-    /// Find the y-coordinate (AppKit, bottom-left origin) of the
-    /// highest "ground" surface at column `sheepX` whose top edge is
-    /// at or below `maxY`. Candidates are the bottom of the screen,
-    /// the top edge of the Dock when the sheep actually overlaps it,
-    /// and the *visible* portion of the top edge of any normal
-    /// application window beneath us.
+    /// Find the highest "ground" surface at column `sheepX` whose top
+    /// edge is at or below `maxY`, along with what kind of support it
+    /// is. Candidates are the bottom of the screen, the top edge of
+    /// the Dock when the sheep actually overlaps it, and the visible
+    /// portion of the top edge of any normal application window
+    /// beneath us.
     ///
     /// "Visible" means: the segment of a window's top edge that isn't
     /// occluded by any window that sits in front of it. We require
@@ -461,8 +466,8 @@ final class SheepController: SheepDragDelegate {
     /// restrict ourselves to the windows of the user's currently
     /// frontmost application — those are reliably visible. See
     /// `FrontmostApp` for how that's tracked.
-    private func surfaceY(forSheepX sheepX: CGFloat, atOrBelow maxY: CGFloat) -> CGFloat {
-        var best = GroundSurface.floorY(
+    private func surfaceHit(forSheepX sheepX: CGFloat, atOrBelow maxY: CGFloat) -> SurfaceHit {
+        var best = GroundSurface.floor(
             screenFrame: screen.frame,
             sheepX: sheepX,
             sheepWidth: Self.displaySize,
@@ -512,7 +517,7 @@ final class SheepController: SheepDragDelegate {
             let topNS = primaryHeight - topCG
             if topNS > maxY { continue }
             // Already found a strictly higher walkable surface.
-            if topNS <= best { continue }
+            if topNS <= best.y { continue }
 
             // Start with the entire top edge, then subtract the
             // x-extent of every window that's in front of us *and*
@@ -535,7 +540,7 @@ final class SheepController: SheepDragDelegate {
                 if visibleLength >= minVisibleLength { break }
             }
             if visibleLength >= minVisibleLength {
-                best = topNS
+                best = SurfaceHit(y: topNS, kind: .window)
             }
         }
 
