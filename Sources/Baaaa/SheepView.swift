@@ -14,11 +14,13 @@ protocol SheepDragDelegate: AnyObject {
 final class SheepView: NSView {
     weak var dragDelegate: SheepDragDelegate?
 
+    private let spriteSheet: SpriteSheet
     private let imageLayer = CALayer()
     private var currentIndex: Int = -1
     private var currentFlipped: Bool = false
 
-    override init(frame frameRect: NSRect) {
+    init(frame frameRect: NSRect, spriteSheet: SpriteSheet = .shared) {
+        self.spriteSheet = spriteSheet
         super.init(frame: frameRect)
         wantsLayer = true
         let host = CALayer()
@@ -46,7 +48,7 @@ final class SheepView: NSView {
         guard index != currentIndex || flipped != currentFlipped else { return }
         currentIndex = index
         currentFlipped = flipped
-        let cgImage = SpriteSheet.shared.tile(index: index, flipped: flipped)
+        let cgImage = spriteSheet.tile(index: index, flipped: flipped)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         imageLayer.contents = cgImage
