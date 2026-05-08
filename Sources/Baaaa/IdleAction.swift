@@ -392,8 +392,16 @@ enum IdleActionStyles {
 }
 
 enum IdleActionSelection {
-    /// Active non-edge idle behaviours for this branch. `lookDown` stays
-    /// out for now so it can be reviewed separately.
-    static let enabledForBranch: [IdleActionKind] = [.headTurn, .doze, .sleep, .eat]
+    /// Ledge-peering is the only edge-specific idle, so prefer it over
+    /// the more generic idles when the sheep is actually at the lip.
+    static func priorityFrames(for edgeProximity: EdgeProximity) -> [IdleActionFrame]? {
+        if edgeProximity == .atEdge {
+            return IdleActionStyles.lookDown
+        }
+        return nil
+    }
+
+    /// Active idle behaviours for this branch.
+    static let enabledForBranch: [IdleActionKind] = [.headTurn, .lookDown, .doze, .sleep, .eat]
     static let headTurnChance = 1...6
 }

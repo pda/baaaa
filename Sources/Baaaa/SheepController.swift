@@ -15,7 +15,7 @@ final class SheepController: SheepDragDelegate {
     static let displaySize: CGFloat = 80
 
     /// Simulation tick rate (frames per second).
-    private static let tickHz: Double = 30
+    static let tickHz: Double = 30
 
     /// Horizontal walking speed, in points per tick.
     private static let walkSpeed: CGFloat = 1.0
@@ -36,9 +36,9 @@ final class SheepController: SheepDragDelegate {
     /// Rare longer pauses so a sheep occasionally lingers in place.
     private static let longIdlePauseRange = 120...300
 
-    /// Probe distance ahead of the sheep when deciding whether to peer
-    /// over the edge of the current ledge.
-    private static let edgeLookAhead: CGFloat = displaySize * 0.45
+    /// When standing at the lip of a ledge, prefer a short hesitation over
+    /// immediately striding off into space.
+    private static let edgePauseRange = IdleActionStyles.totalTicks(IdleActionStyles.lookDown)...72
 
     /// Brief pause after deciding to turn away from another sheep.
     private static let encounterTurnPauseRange = 12...24
@@ -56,7 +56,6 @@ final class SheepController: SheepDragDelegate {
     private let view: SheepView
     private let screen: NSScreen
     private let nearbySheep: (Int) -> [SheepObservation]
-    private var timer: Timer?
     let id: Int
 
     private enum Mode { case falling, walking, dragging, dazed }
@@ -80,6 +79,9 @@ final class SheepController: SheepDragDelegate {
     /// once a sheep lies down, keep it asleep for a while, then block
     /// immediate repeat sleeps with a cooldown.
     private var sleepBehaviour = SleepBehaviourState(style: IdleActionStyles.sleep)
+    /// Remembers whether the current ledge has already triggered a
+    /// pause so the sheep doesn't get stuck reusing it.
+    private var pausedEdgeProximity: EdgeProximity = .none
     /// Tracks short face-to-face pauses with nearby sheep.
     private var awareness = SheepAwareness()
 
@@ -126,24 +128,20 @@ final class SheepController: SheepDragDelegate {
         positionWindow()
         view.setSprite(index: SpriteIndex.fall, flipped: direction > 0)
         window.orderFrontRegardless()
-
-        let interval = 1.0 / Self.tickHz
-        let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
-            self?.step()
-        }
-        RunLoop.main.add(timer, forMode: .common)
-        self.timer = timer
     }
 
     func stop() {
-        timer?.invalidate()
-        timer = nil
         window.orderOut(nil)
     }
 
     // MARK: Simulation
 
-    private func step() {
+    private var currentWindowSurfaceSnapshot: WindowSurfaceSnapshot?
+
+    func step(windowSurfaceSnapshot: WindowSurfaceSnapshot?) {
+        currentWindowSurfaceSnapshot = windowSurfaceSnapshot
+        defer { currentWindowSurfaceSnapshot = nil }
+
         tick &+= 1
         sleepBehaviour.advanceCooldown()
         switch mode {
@@ -180,6 +178,7 @@ final class SheepController: SheepDragDelegate {
                 enterDazed()
             } else {
                 mode = .walking
+                pausedEdgeProximity = .none
                 beginIdlePause(Int.random(in: 6...30))
                 view.setSprite(index: idleSpriteIndex() ?? standingSpriteIndex(), flipped: direction > 0)
             }
@@ -269,21 +268,47 @@ final class SheepController: SheepDragDelegate {
             }
         }
 
+        let edgeProbe = leadingEdgeProbe(from: currentSurface)
+        if awarenessDecision == .walkNormally {
+            if edgeProbe.proximity == .none {
+                pausedEdgeProximity = .none
+            }
+            if let edgePauseTicks = EdgePauseSelection.pauseTicks(
+                for: edgeProbe.proximity,
+                lastPausedProximity: pausedEdgeProximity,
+                strideOffRoll: Int.random(in: EdgePauseSelection.strideOffChance),
+                nextPauseTicks: { Int.random(in: Self.edgePauseRange) }
+            ) {
+                pausedEdgeProximity = edgeProbe.proximity
+                beginIdlePause(edgePauseTicks, edgeProximity: edgeProbe.proximity)
+                view.setSprite(index: idleSpriteIndex() ?? standingSpriteIndex(), flipped: direction > 0)
+                return
+            }
+        }
+
         blink.endedStandingPose()
         idleAction = nil
         x += direction * Self.walkSpeed
 
         // Bounce off horizontal screen edges.
         let frame = screen.visibleFrame
+        var bouncedOffScreenEdge = false
         if x < frame.minX {
             x = frame.minX
             direction = 1
+            bouncedOffScreenEdge = true
         } else if x > frame.maxX - Self.displaySize {
             x = frame.maxX - Self.displaySize
             direction = -1
+            bouncedOffScreenEdge = true
         }
 
-        guard refreshStandingSurface(previousSurface: currentSurface) != nil else { return }
+        let nextStandingSurface = if bouncedOffScreenEdge {
+            refreshStandingSurface(previousSurface: currentSurface)
+        } else {
+            applyStandingSurface(edgeProbe.nextSurface, previousSurface: currentSurface)
+        }
+        guard nextStandingSurface != nil else { return }
 
         // Animate the walk cycle.
         let frameIndex = SpriteIndex.walk[(tick / 6) % SpriteIndex.walk.count]
@@ -307,6 +332,10 @@ final class SheepController: SheepDragDelegate {
             forSheepX: x,
             atOrBelow: y + Self.stepUpTolerance
         )
+        return applyStandingSurface(surface, previousSurface: previousSurface)
+    }
+
+    private func applyStandingSurface(_ surface: SurfaceHit, previousSurface: SurfaceHit? = nil) -> SurfaceHit? {
         let shouldFall = if let previousSurface {
             SurfaceState.shouldFall(current: previousSurface, next: surface)
         } else {
@@ -315,6 +344,7 @@ final class SheepController: SheepDragDelegate {
         if shouldFall {
             mode = .falling
             vy = 0
+            pausedEdgeProximity = .none
             awareness.reset()
             disturbIdleAction()
             view.setSprite(index: SpriteIndex.fall, flipped: direction > 0)
@@ -339,6 +369,7 @@ final class SheepController: SheepDragDelegate {
         mode = .dragging
         vy = 0
         idleTicks = 0
+        pausedEdgeProximity = .none
         awareness.reset()
         disturbIdleAction()
         dragOffset = NSSize(width: globalPoint.x - x, height: globalPoint.y - y)
@@ -404,12 +435,17 @@ final class SheepController: SheepDragDelegate {
         return nil
     }
 
-    private func beginIdlePause(_ ticks: Int) {
+    private func beginIdlePause(_ ticks: Int, edgeProximity: EdgeProximity? = nil) {
         idleTicks = ticks
-        idleAction = chooseIdleAction(forPauseTicks: ticks)
+        idleAction = chooseIdleAction(forPauseTicks: ticks, edgeProximity: edgeProximity)
     }
 
-    private func chooseIdleAction(forPauseTicks ticks: Int) -> IdleActionState? {
+    private func chooseIdleAction(forPauseTicks ticks: Int, edgeProximity: EdgeProximity? = nil) -> IdleActionState? {
+        let edgeProximity = edgeProximity ?? leadingEdgeProximity()
+        if let priorityFrames = IdleActionSelection.priorityFrames(for: edgeProximity) {
+            return IdleActionState(frames: priorityFrames)
+        }
+
         let candidates = IdleActionSelection.enabledForBranch.compactMap { kind -> IdleActionState? in
             switch kind {
             case .headTurn:
@@ -417,7 +453,7 @@ final class SheepController: SheepDragDelegate {
                     return IdleActionState(frames: IdleActionStyles.headTurn)
                 }
             case .lookDown:
-                if ticks >= IdleActionStyles.totalTicks(IdleActionStyles.lookDown), isNearLeadingEdge() {
+                if ticks >= IdleActionStyles.totalTicks(IdleActionStyles.lookDown), edgeProximity == .atEdge {
                     return IdleActionState(frames: IdleActionStyles.lookDown)
                 }
             case .doze:
@@ -439,13 +475,23 @@ final class SheepController: SheepDragDelegate {
         return candidates.randomElement()
     }
 
-    private func isNearLeadingEdge() -> Bool {
-        let probeX = x + (direction * Self.edgeLookAhead)
-        let probeSurface = surfaceHit(
-            forSheepX: probeX,
+    private func leadingEdgeProximity(from currentSurface: SurfaceHit? = nil) -> EdgeProximity {
+        leadingEdgeProbe(from: currentSurface).proximity
+    }
+
+    private func leadingEdgeProbe(from currentSurface: SurfaceHit? = nil) -> EdgeProbe {
+        let currentSurface = currentSurface ?? surfaceHit(
+            forSheepX: x,
             atOrBelow: y + Self.stepUpTolerance
-        ).y
-        return SurfaceState.shouldFall(currentY: y, surfaceY: probeSurface)
+        )
+        let nextSurface = surfaceHit(
+            forSheepX: x + (direction * Self.walkSpeed),
+            atOrBelow: y + Self.stepUpTolerance
+        )
+        return EdgeProbe(
+            proximity: EdgeProximitySelection.proximity(current: currentSurface, nextStep: nextSurface),
+            nextSurface: nextSurface
+        )
     }
 
     /// Find the highest "ground" surface at column `sheepX` whose top
@@ -474,12 +520,142 @@ final class SheepController: SheepDragDelegate {
             dockRect: DockGeometry.current(on: screen)?.rect
         )
 
-        let frontmostPID = FrontmostApp.shared.pid
-        if frontmostPID == 0 { return best }
+        guard let snapshot = currentWindowSurfaceSnapshot else {
+            return best
+        }
 
+        let sheepLeft = sheepX
+        let sheepRight = sheepX + Self.displaySize
+        let minVisibleLength = Self.displaySize * 0.4
+
+        for (i, w) in snapshot.windows.enumerated() {
+            let topCG = w.bounds.minY
+            let topNS = snapshot.primaryHeight - topCG
+            if topNS > maxY { continue }
+            // Already found a strictly higher walkable surface.
+            if topNS <= best.y { continue }
+
+            // Start with the entire top edge, then subtract the
+            // x-extent of every window that's in front of us *and*
+            // crosses this top edge's y line.
+            var spans: [Span] = [Span(low: w.bounds.minX, high: w.bounds.maxX)]
+            for j in 0..<i {
+                let fr = snapshot.windows[j].bounds
+                if topCG < fr.minY || topCG > fr.maxY { continue }
+                spans = Span.subtract(spans, low: fr.minX, high: fr.maxX)
+                if spans.isEmpty { break }
+            }
+            if spans.isEmpty { continue }
+
+            // Sum visible length within the sheep's footprint.
+            var visibleLength: CGFloat = 0
+            for s in spans {
+                let lo = max(s.low, sheepLeft)
+                let hi = min(s.high, sheepRight)
+                if hi > lo { visibleLength += hi - lo }
+                if visibleLength >= minVisibleLength { break }
+            }
+            if visibleLength >= minVisibleLength {
+                best = SurfaceHit(y: topNS, kind: .window)
+            }
+        }
+
+        return best
+    }
+}
+
+enum EdgeProximity: Equatable {
+    case none
+    case atEdge
+}
+
+private struct EdgeProbe {
+    let proximity: EdgeProximity
+    let nextSurface: SurfaceHit
+}
+
+enum EdgeProximitySelection {
+    static func proximity(current: SurfaceHit, nextStep: SurfaceHit) -> EdgeProximity {
+        if SurfaceState.shouldFall(current: current, next: nextStep) {
+            return .atEdge
+        }
+        return .none
+    }
+}
+
+enum EdgePauseSelection {
+    /// One roll means "stride off"; the others become a hesitation,
+    /// so edge pauses are more common than edge falls.
+    static let strideOffChance = 1...3
+
+    static func pauseTicks(
+        for edgeProximity: EdgeProximity,
+        lastPausedProximity: EdgeProximity,
+        strideOffRoll: Int,
+        nextPauseTicks: () -> Int
+    ) -> Int? {
+        guard edgeProximity != .none else { return nil }
+        guard edgeProximity != lastPausedProximity else { return nil }
+        if strideOffRoll == strideOffChance.lowerBound {
+            return nil
+        }
+        return nextPauseTicks()
+    }
+}
+
+// MARK: - Window-list helpers
+
+struct WindowEntry {
+    let bounds: CGRect      // CG coordinates (top-left origin)
+}
+
+struct WindowSurfaceSnapshot {
+    let windows: [WindowEntry]
+    let primaryHeight: CGFloat
+}
+
+enum WindowSurfaceCache {
+    private static let refreshInterval: CFTimeInterval = 1.0 / 15.0
+    private static var cachedPID: pid_t?
+    private static var cachedAt: CFAbsoluteTime?
+    private static var cachedSnapshot: WindowSurfaceSnapshot?
+
+    static func current(frontmostPID: pid_t, screen: NSScreen) -> WindowSurfaceSnapshot? {
+        guard frontmostPID != 0 else { return nil }
+
+        let now = CFAbsoluteTimeGetCurrent()
+        if !shouldRefresh(
+            now: now,
+            lastRefresh: cachedAt,
+            cachedPID: cachedPID,
+            frontmostPID: frontmostPID,
+            refreshInterval: refreshInterval
+        ) {
+            return cachedSnapshot
+        }
+
+        let snapshot = load(frontmostPID: frontmostPID, screen: screen)
+        cachedPID = frontmostPID
+        cachedAt = now
+        cachedSnapshot = snapshot
+        return snapshot
+    }
+
+    static func shouldRefresh(
+        now: CFAbsoluteTime,
+        lastRefresh: CFAbsoluteTime?,
+        cachedPID: pid_t?,
+        frontmostPID: pid_t,
+        refreshInterval: CFTimeInterval
+    ) -> Bool {
+        guard cachedPID == frontmostPID, let lastRefresh else { return true }
+        return now - lastRefresh >= refreshInterval
+    }
+
+    private static func load(frontmostPID: pid_t, screen: NSScreen) -> WindowSurfaceSnapshot? {
         let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
         guard let raw = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else {
-            return best
+            return nil
         }
 
         // Pre-parse and filter to layer-0 windows owned by the
@@ -507,51 +683,8 @@ final class SheepController: SheepDragDelegate {
         // primary display, with y growing downward. Convert window
         // tops into AppKit space using the primary screen's height.
         let primaryHeight = NSScreen.screens.first?.frame.height ?? screen.frame.height
-
-        let sheepLeft = sheepX
-        let sheepRight = sheepX + Self.displaySize
-        let minVisibleLength = Self.displaySize * 0.4
-
-        for (i, w) in windows.enumerated() {
-            let topCG = w.bounds.minY
-            let topNS = primaryHeight - topCG
-            if topNS > maxY { continue }
-            // Already found a strictly higher walkable surface.
-            if topNS <= best.y { continue }
-
-            // Start with the entire top edge, then subtract the
-            // x-extent of every window that's in front of us *and*
-            // crosses this top edge's y line.
-            var spans: [Span] = [Span(low: w.bounds.minX, high: w.bounds.maxX)]
-            for j in 0..<i {
-                let fr = windows[j].bounds
-                if topCG < fr.minY || topCG > fr.maxY { continue }
-                spans = Span.subtract(spans, low: fr.minX, high: fr.maxX)
-                if spans.isEmpty { break }
-            }
-            if spans.isEmpty { continue }
-
-            // Sum visible length within the sheep's footprint.
-            var visibleLength: CGFloat = 0
-            for s in spans {
-                let lo = max(s.low, sheepLeft)
-                let hi = min(s.high, sheepRight)
-                if hi > lo { visibleLength += hi - lo }
-                if visibleLength >= minVisibleLength { break }
-            }
-            if visibleLength >= minVisibleLength {
-                best = SurfaceHit(y: topNS, kind: .window)
-            }
-        }
-
-        return best
+        return WindowSurfaceSnapshot(windows: windows, primaryHeight: primaryHeight)
     }
-}
-
-// MARK: - Window-list helpers
-
-private struct WindowEntry {
-    let bounds: CGRect      // CG coordinates (top-left origin)
 }
 
 /// A 1-D x-axis interval [low, high]. Used to track the visible

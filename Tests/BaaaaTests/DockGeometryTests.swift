@@ -67,6 +67,43 @@ import Testing
     #expect(DockGeometry.nextCachedRect(previous: previousDock, resolved: nil, autohides: false) == previousDock)
 }
 
+@Test func windowSurfaceCacheRefreshesWithoutExistingSnapshot() {
+    #expect(WindowSurfaceCache.shouldRefresh(
+        now: 10,
+        lastRefresh: nil,
+        cachedPID: nil,
+        frontmostPID: 100,
+        refreshInterval: 0.1
+    ))
+}
+
+@Test func windowSurfaceCacheReusesFreshSnapshotForSameApp() {
+    #expect(!WindowSurfaceCache.shouldRefresh(
+        now: 10.05,
+        lastRefresh: 10,
+        cachedPID: 100,
+        frontmostPID: 100,
+        refreshInterval: 0.1
+    ))
+}
+
+@Test func windowSurfaceCacheRefreshesWhenExpiredOrFrontmostAppChanges() {
+    #expect(WindowSurfaceCache.shouldRefresh(
+        now: 10.2,
+        lastRefresh: 10,
+        cachedPID: 100,
+        frontmostPID: 100,
+        refreshInterval: 0.1
+    ))
+    #expect(WindowSurfaceCache.shouldRefresh(
+        now: 10.05,
+        lastRefresh: 10,
+        cachedPID: 100,
+        frontmostPID: 200,
+        refreshInterval: 0.1
+    ))
+}
+
 @Test func surfaceStateFallsWhenSurfaceDisappears() {
     #expect(SurfaceState.shouldFall(currentY: 95, surfaceY: 0))
 }
