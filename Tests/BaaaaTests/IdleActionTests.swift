@@ -1,8 +1,90 @@
 import Testing
 @testable import Baaaa
 
-@Test func branchSelectionIncludesNonEdgeIdleBehaviours() {
-    #expect(IdleActionSelection.enabledForBranch == [.headTurn, .doze, .sleep, .eat])
+@Test func branchSelectionIncludesEdgeAndNonEdgeIdleBehaviours() {
+    #expect(IdleActionSelection.enabledForBranch == [.headTurn, .lookDown, .doze, .sleep, .eat])
+}
+
+@Test func edgePausePrioritisesLookDownFrames() {
+    #expect(
+        IdleActionSelection.priorityFrames(for: .atEdge)?.map(\.sprite)
+        == IdleActionStyles.lookDown.map(\.sprite)
+    )
+}
+
+@Test func edgeProximitySelectionRequiresImmediateDropForLookDown() {
+    #expect(
+        EdgeProximitySelection.proximity(
+            current: SurfaceHit(y: 95, kind: .window),
+            nextStep: SurfaceHit(y: 0, kind: .desktop)
+        ) == .atEdge
+    )
+}
+
+@Test func edgeProximitySelectionIgnoresSupportedNextStep() {
+    #expect(
+        EdgeProximitySelection.proximity(
+            current: SurfaceHit(y: 95, kind: .window),
+            nextStep: SurfaceHit(y: 95, kind: .window)
+        ) == .none
+    )
+}
+
+@Test func edgeProximitySelectionDoesNotTreatDockCornerSlopeAsEdge() {
+    #expect(
+        EdgeProximitySelection.proximity(
+            current: SurfaceHit(y: 57.1954, kind: .dock),
+            nextStep: SurfaceHit(y: 47.5, kind: .dock)
+        ) == .none
+    )
+}
+
+@Test func nonEdgePauseHasNoPriorityFrames() {
+    #expect(IdleActionSelection.priorityFrames(for: .none) == nil)
+}
+
+@Test func edgePauseSelectionPrefersHesitationAtLedge() {
+    #expect(
+        EdgePauseSelection.pauseTicks(
+            for: .atEdge,
+            lastPausedProximity: .none,
+            strideOffRoll: 2,
+            nextPauseTicks: { 60 }
+        ) == 60
+    )
+}
+
+@Test func edgePauseSelectionSometimesLetsSheepStrideOff() {
+    #expect(
+        EdgePauseSelection.pauseTicks(
+            for: .atEdge,
+            lastPausedProximity: .none,
+            strideOffRoll: 1,
+            nextPauseTicks: { 60 }
+        ) == nil
+    )
+}
+
+@Test func edgePauseSelectionIgnoresNonEdges() {
+    #expect(
+        EdgePauseSelection.pauseTicks(
+            for: .none,
+            lastPausedProximity: .none,
+            strideOffRoll: 2,
+            nextPauseTicks: { 60 }
+        ) == nil
+    )
+}
+
+@Test func edgePauseSelectionDoesNotRepeatAtSameLedge() {
+    #expect(
+        EdgePauseSelection.pauseTicks(
+            for: .atEdge,
+            lastPausedProximity: .atEdge,
+            strideOffRoll: 2,
+            nextPauseTicks: { 60 }
+        ) == nil
+    )
 }
 
 @Test func headTurnSequenceMatchesUpstreamFrames() {

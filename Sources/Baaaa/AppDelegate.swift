@@ -3,10 +3,17 @@ import AppKit
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var sheep: [SheepController] = []
     private var statusItem: NSStatusItem?
+    private var timer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupStatusItem()
         spawnSheep()
+        startTimer()
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        timer?.invalidate()
+        timer = nil
     }
 
     private func setupStatusItem() {
@@ -68,5 +75,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         sheep.append(controller)
         controller.start()
+    }
+
+    private func startTimer() {
+        let interval = 1.0 / SheepController.tickHz
+        let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
+            self?.stepFlock()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
+    }
+
+    private func stepFlock() {
+        guard let screen = NSScreen.main else { return }
+        let snapshot = WindowSurfaceCache.current(
+            frontmostPID: FrontmostApp.shared.pid,
+            screen: screen
+        )
+        sheep.forEach { $0.step(windowSurfaceSnapshot: snapshot) }
     }
 }
