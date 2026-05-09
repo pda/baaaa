@@ -43,6 +43,10 @@ final class SheepController: SheepDragDelegate {
     /// Brief pause after deciding to turn away from another sheep.
     private static let encounterTurnPauseRange = 12...24
 
+    /// How close the sheep's mouth needs to be before it can start
+    /// nibbling a grass patch.
+    private static let grassReachDistance: CGFloat = 12
+
     private static var nextID: Int = 0
 
     // MARK: State
@@ -56,6 +60,10 @@ final class SheepController: SheepDragDelegate {
     private let view: SheepView
     private let screen: NSScreen
     private let nearbySheep: (Int) -> [SheepObservation]
+    private let nearbyGrass: () -> [GrassObservation]
+    private let claimGrass: (Int) -> Bool
+    private let releaseGrass: (Int) -> Void
+    private let consumeGrass: (Int) -> Void
     let id: Int
 
     private enum Mode { case falling, walking, dragging, dazed }
@@ -84,6 +92,9 @@ final class SheepController: SheepDragDelegate {
     private var pausedEdgeProximity: EdgeProximity = .none
     /// Tracks short face-to-face pauses with nearby sheep.
     private var awareness = SheepAwareness()
+    /// The grass patch currently being eaten. It is removed only once
+    /// the chewing animation completes.
+    private var eatingGrassID: Int?
 
     /// Position into `SpriteIndex.dazed` while in the dazed mode.
     private var dazedStep: Int = 0
@@ -96,9 +107,20 @@ final class SheepController: SheepDragDelegate {
 
     // MARK: Init
 
-    init(screen: NSScreen, nearbySheep: @escaping (Int) -> [SheepObservation] = { _ in [] }) {
+    init(
+        screen: NSScreen,
+        nearbySheep: @escaping (Int) -> [SheepObservation] = { _ in [] },
+        nearbyGrass: @escaping () -> [GrassObservation] = { [] },
+        claimGrass: @escaping (Int) -> Bool = { _ in true },
+        releaseGrass: @escaping (Int) -> Void = { _ in },
+        consumeGrass: @escaping (Int) -> Void = { _ in }
+    ) {
         self.screen = screen
         self.nearbySheep = nearbySheep
+        self.nearbyGrass = nearbyGrass
+        self.claimGrass = claimGrass
+        self.releaseGrass = releaseGrass
+        self.consumeGrass = consumeGrass
         Self.nextID += 1
         self.id = Self.nextID
         let size = CGSize(width: Self.displaySize, height: Self.displaySize)
@@ -249,10 +271,20 @@ final class SheepController: SheepDragDelegate {
             break
         }
 
+        let grassTarget = grassTarget(on: currentSurface)
+        if let grassTarget, isWithinReach(of: grassTarget) {
+            if beginEatingGrass(grassTarget) {
+                view.setSprite(index: idleSpriteIndex() ?? standingSpriteIndex(), flipped: direction > 0)
+            } else {
+                view.setSprite(index: standingSpriteIndex(), flipped: direction > 0)
+            }
+            return
+        }
+
         // Idle pause between bursts of walking. Suspended while we're
         // clipping past another sheep so the encounter doesn't lock us
         // mid-stride.
-        if awarenessDecision == .walkNormally, idleTicks > 0 || idleAction != nil {
+        if awarenessDecision == .walkNormally, grassTarget == nil, idleTicks > 0 || idleAction != nil {
             if idleTicks > 0 {
                 idleTicks -= 1
             }
@@ -266,6 +298,10 @@ final class SheepController: SheepDragDelegate {
                 view.setSprite(index: standingSpriteIndex(), flipped: direction > 0)
                 return
             }
+        }
+
+        if let grassTarget {
+            seekGrass(grassTarget)
         }
 
         let edgeProbe = leadingEdgeProbe(from: currentSurface)
@@ -315,10 +351,10 @@ final class SheepController: SheepDragDelegate {
         view.setSprite(index: frameIndex, flipped: direction > 0)
 
         // Occasionally turn around or pause for a moment.
-        if Int.random(in: 0..<400) == 0 {
+        if grassTarget == nil, Int.random(in: 0..<400) == 0 {
             direction = -direction
         }
-        if Int.random(in: 0..<300) == 0 {
+        if grassTarget == nil, Int.random(in: 0..<300) == 0 {
             if Int.random(in: 0..<5) == 0 {
                 beginIdlePause(Int.random(in: Self.longIdlePauseRange))
             } else {
@@ -402,6 +438,10 @@ final class SheepController: SheepDragDelegate {
         if idleAction?.isSleep == true {
             sleepBehaviour.startCooldown()
         }
+        if let eatingGrassID {
+            releaseGrass(eatingGrassID)
+            self.eatingGrassID = nil
+        }
         idleAction = nil
     }
 
@@ -429,6 +469,10 @@ final class SheepController: SheepDragDelegate {
             }
             if idleAction.isSleep {
                 sleepBehaviour.startCooldown()
+            }
+            if let eatingGrassID {
+                consumeGrass(eatingGrassID)
+                self.eatingGrassID = nil
             }
             self.idleAction = nil
         }
@@ -465,14 +509,59 @@ final class SheepController: SheepDragDelegate {
                     return IdleActionState(sleepStyle: IdleActionStyles.sleep)
                 }
             case .eat:
-                if ticks >= 90 {
-                    return IdleActionState(frames: IdleActionStyles.eat(fittingWithin: ticks))
-                }
+                break
             }
             return nil
         }
 
         return candidates.randomElement()
+    }
+
+    private func grassTarget(on surface: SurfaceHit) -> GrassObservation? {
+        guard surface.kind == .dock, eatingGrassID == nil else { return nil }
+        return GrassTargeting.nearestAvailable(to: grassMouthX, in: nearbyGrass())
+    }
+
+    private var grassMouthX: CGFloat {
+        GrassTargeting.mouthX(sheepX: x, sheepWidth: Self.displaySize, direction: direction)
+    }
+
+    private func isWithinReach(of grass: GrassObservation) -> Bool {
+        GrassTargeting.canEat(
+            grassCenterX: grass.centerX,
+            sheepX: x,
+            sheepWidth: Self.displaySize,
+            reachDistance: Self.grassReachDistance
+        )
+    }
+
+    private func seekGrass(_ grass: GrassObservation) {
+        direction = GrassTargeting.seekingDirection(
+            grassCenterX: grass.centerX,
+            sheepX: x,
+            sheepWidth: Self.displaySize,
+            currentDirection: direction,
+            centerTolerance: Self.grassReachDistance
+        )
+        if idleTicks > 0 || idleAction != nil {
+            idleTicks = 0
+            disturbIdleAction()
+        }
+    }
+
+    private func beginEatingGrass(_ grass: GrassObservation) -> Bool {
+        guard claimGrass(grass.id) else { return false }
+        blink.interrupted()
+        awareness.reset()
+        let delta = grass.centerX - (x + (Self.displaySize / 2))
+        if abs(delta) > 1 {
+            direction = delta > 0 ? 1 : -1
+        }
+        let frames = IdleActionStyles.eat(fittingWithin: 120)
+        idleTicks = IdleActionStyles.totalTicks(frames)
+        idleAction = IdleActionState(frames: frames)
+        eatingGrassID = grass.id
+        return true
     }
 
     private func leadingEdgeProximity(from currentSurface: SurfaceHit? = nil) -> EdgeProximity {

@@ -43,13 +43,13 @@ These are the upstream sequences prepared for Baaaa idle pauses.
 Currently live in the branch:
 
 - `Head Turn`
+- `Look Down`
 - `Sleepy Nod`
 - `Lie-Down Sleep`
-- `Nibble`
+- `Nibble`, when a Dock grass patch is present
 
 Still deferred for later review:
 
-- `Look Down`
 - `Pee / Wee`
 
 ### 1. Head Turn
@@ -122,7 +122,7 @@ These are worth porting later.
 - `eat` (`id=26`): `6, 6, 6, 6, 58, 59, 59, 60, 61, 60, 61, 6`
 - Local sequence: setup + bounded chew loops + `6, 3`
 - Visual effect: a small nibble/chew idle action
-- This is currently enabled live
+- This is driven by spawned Dock grass patches rather than random idle selection
 
 ## Environment-Coupled Upstream Sets
 
