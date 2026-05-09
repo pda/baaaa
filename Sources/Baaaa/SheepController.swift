@@ -54,6 +54,7 @@ final class SheepController: SheepDragDelegate {
 
     private let window: SheepWindow
     private let view: SheepView
+    private let thoughtWindow: ThoughtBubbleWindow
     private let screen: NSScreen
     private let nearbySheep: (Int) -> [SheepObservation]
     let id: Int
@@ -84,6 +85,17 @@ final class SheepController: SheepDragDelegate {
     private var pausedEdgeProximity: EdgeProximity = .none
     /// Tracks short face-to-face pauses with nearby sheep.
     private var awareness = SheepAwareness()
+    /// Optional click-through thought bubble that follows this sheep.
+    private var thoughtBubble = ThoughtBubbleState()
+    /// User-facing menu setting. When disabled, no thoughts are
+    /// generated and any visible bubble is hidden immediately.
+    private var thoughtBubblesEnabled: Bool
+    /// Why the sheep is currently falling. Used to choose the next
+    /// landing thought once it reaches a surface.
+    private var fallCause: ThoughtFallCause = .normal
+    /// A hard landing plays the dazed animation first, so hold the
+    /// recovery thought until the sheep can show a bubble again.
+    private var pendingDazedRecoveryThought: ThoughtStimulus?
 
     /// Position into `SpriteIndex.dazed` while in the dazed mode.
     private var dazedStep: Int = 0
@@ -96,14 +108,20 @@ final class SheepController: SheepDragDelegate {
 
     // MARK: Init
 
-    init(screen: NSScreen, nearbySheep: @escaping (Int) -> [SheepObservation] = { _ in [] }) {
+    init(
+        screen: NSScreen,
+        thoughtBubblesEnabled: Bool = true,
+        nearbySheep: @escaping (Int) -> [SheepObservation] = { _ in [] }
+    ) {
         self.screen = screen
         self.nearbySheep = nearbySheep
+        self.thoughtBubblesEnabled = thoughtBubblesEnabled
         Self.nextID += 1
         self.id = Self.nextID
         let size = CGSize(width: Self.displaySize, height: Self.displaySize)
         self.window = SheepWindow(size: size)
         self.view = SheepView(frame: NSRect(origin: .zero, size: size))
+        self.thoughtWindow = ThoughtBubbleWindow()
         self.window.contentView = self.view
         self.blink = BlinkState(
             standingSprite: BlinkStyles.sheep.standingSprite,
@@ -132,6 +150,16 @@ final class SheepController: SheepDragDelegate {
 
     func stop() {
         window.orderOut(nil)
+        thoughtWindow.hide()
+    }
+
+    func setThoughtBubblesEnabled(_ enabled: Bool) {
+        thoughtBubblesEnabled = enabled
+        if !enabled {
+            thoughtBubble.cancel()
+            pendingDazedRecoveryThought = nil
+            thoughtWindow.hide()
+        }
     }
 
     // MARK: Simulation
@@ -150,6 +178,7 @@ final class SheepController: SheepDragDelegate {
         case .dragging: stepDragging()
         case .dazed: stepDazed()
         }
+        thoughtBubble.advance()
         positionWindow()
     }
 
@@ -162,12 +191,14 @@ final class SheepController: SheepDragDelegate {
         // can never "overshoot" a window top in one tick: if our
         // proposed move would carry us through a window's top edge,
         // we land on it instead.
-        let surface = surfaceHit(forSheepX: x, atOrBelow: y).y
-        if nextY <= surface {
-            y = surface
+        let landingSurface = surfaceHit(forSheepX: x, atOrBelow: y)
+        if nextY <= landingSurface.y {
+            y = landingSurface.y
             let landingSpeed = abs(vy)
             vy = 0
             awareness.reset()
+            let cause = fallCause
+            fallCause = .normal
             // Pick a new direction occasionally on landing.
             if Bool.random() { direction = -direction }
 
@@ -175,11 +206,19 @@ final class SheepController: SheepDragDelegate {
                 // Hit the ground hard enough to be momentarily dazed —
                 // play the impact / stars-spinning / sit-up sequence
                 // before resuming the walk cycle.
-                enterDazed()
+                enterDazed(
+                    recoveryThought: .hardLanding(
+                        surface: landingSurface.kind,
+                        cause: cause
+                    )
+                )
             } else {
                 mode = .walking
                 pausedEdgeProximity = .none
-                beginIdlePause(Int.random(in: 6...30))
+                beginIdlePause(
+                    Int.random(in: 6...30),
+                    stimulus: .landing(surface: landingSurface.kind, cause: cause)
+                )
                 view.setSprite(index: idleSpriteIndex() ?? standingSpriteIndex(), flipped: direction > 0)
             }
         } else {
@@ -189,8 +228,9 @@ final class SheepController: SheepDragDelegate {
         }
     }
 
-    private func enterDazed() {
+    private func enterDazed(recoveryThought: ThoughtStimulus) {
         awareness.reset()
+        pendingDazedRecoveryThought = recoveryThought
         mode = .dazed
         dazedStep = 0
         let frame = SpriteIndex.dazed[0]
@@ -205,7 +245,13 @@ final class SheepController: SheepDragDelegate {
         if dazedStep >= SpriteIndex.dazed.count {
             // Recovery complete — resume normal walking.
             mode = .walking
-            beginIdlePause(Int.random(in: 6...30))
+            let thought = pendingDazedRecoveryThought
+            pendingDazedRecoveryThought = nil
+            beginIdlePause(
+                Int.random(in: 6...30),
+                stimulus: thought,
+                forceThought: thought != nil
+            )
             view.setSprite(index: idleSpriteIndex() ?? standingSpriteIndex(), flipped: direction > 0)
             return
         }
@@ -233,16 +279,19 @@ final class SheepController: SheepDragDelegate {
         switch awarenessDecision {
         case let .stop(stopX):
             x = stopX
+            maybeBeginThought(stimulus: .sheepEncounter)
             view.setSprite(index: standingSpriteIndex(), flipped: direction > 0)
             return
 
         case .reverseDirection:
             direction = -direction
             idleTicks = Int.random(in: Self.encounterTurnPauseRange)
+            maybeBeginThought(stimulus: .turnAway, force: true)
             view.setSprite(index: standingSpriteIndex(), flipped: direction > 0)
             return
 
         case .passThroughEncounter:
+            maybeBeginThought(stimulus: .passingSheep)
             break
 
         case .walkNormally:
@@ -297,10 +346,12 @@ final class SheepController: SheepDragDelegate {
             x = frame.minX
             direction = 1
             bouncedOffScreenEdge = true
+            maybeBeginThought(stimulus: .screenEdge)
         } else if x > frame.maxX - Self.displaySize {
             x = frame.maxX - Self.displaySize
             direction = -1
             bouncedOffScreenEdge = true
+            maybeBeginThought(stimulus: .screenEdge)
         }
 
         let nextStandingSurface = if bouncedOffScreenEdge {
@@ -346,6 +397,7 @@ final class SheepController: SheepDragDelegate {
             vy = 0
             pausedEdgeProximity = .none
             awareness.reset()
+            fallCause = .edge
             disturbIdleAction()
             view.setSprite(index: SpriteIndex.fall, flipped: direction > 0)
             return nil
@@ -388,6 +440,7 @@ final class SheepController: SheepDragDelegate {
         // Drop from wherever we were released. Snap onto a surface
         // immediately if we were already touching one, otherwise fall.
         mode = .falling
+        fallCause = .dragged
         vy = 0
     }
 
@@ -395,6 +448,28 @@ final class SheepController: SheepDragDelegate {
 
     private func positionWindow() {
         window.setFrameOrigin(NSPoint(x: x, y: y))
+        positionThoughtBubble()
+    }
+
+    private func positionThoughtBubble() {
+        guard thoughtBubblesEnabled, mode == .walking, let thought = thoughtBubble.active else {
+            thoughtWindow.hide()
+            return
+        }
+
+        let frame = ThoughtBubbleLayout.frame(
+            content: thought,
+            sheepOrigin: CGPoint(x: x, y: y),
+            sheepSize: CGSize(width: Self.displaySize, height: Self.displaySize),
+            screenFrame: screen.visibleFrame,
+            floatOffset: thoughtBubble.floatOffset
+        )
+        thoughtWindow.show(
+            content: thought,
+            frame: frame,
+            tailSide: direction > 0 ? .right : .left,
+            above: window
+        )
     }
 
     private func disturbIdleAction() {
@@ -403,6 +478,7 @@ final class SheepController: SheepDragDelegate {
             sleepBehaviour.startCooldown()
         }
         idleAction = nil
+        thoughtBubble.cancel()
     }
 
     var awarenessObservation: SheepObservation? {
@@ -435,38 +511,73 @@ final class SheepController: SheepDragDelegate {
         return nil
     }
 
-    private func beginIdlePause(_ ticks: Int, edgeProximity: EdgeProximity? = nil) {
+    private func beginIdlePause(
+        _ ticks: Int,
+        edgeProximity: EdgeProximity? = nil,
+        stimulus explicitStimulus: ThoughtStimulus? = nil,
+        forceThought: Bool = false
+    ) {
         idleTicks = ticks
         idleAction = chooseIdleAction(forPauseTicks: ticks, edgeProximity: edgeProximity)
+        let stimulus = explicitStimulus ?? thoughtStimulus(forPauseTicks: ticks, idleAction: idleAction)
+        maybeBeginThought(
+            stimulus: stimulus,
+            force: forceThought || idleAction?.kind == .sleep
+        )
+    }
+
+    private func maybeBeginThought(stimulus: ThoughtStimulus, force: Bool = false) {
+        guard thoughtBubblesEnabled else { return }
+        thoughtBubble.maybeBegin(stimulus: stimulus, force: force)
+    }
+
+    private func thoughtStimulus(forPauseTicks ticks: Int, idleAction: IdleActionState?) -> ThoughtStimulus {
+        switch idleAction?.kind {
+        case .headTurn:
+            return .headTurn
+        case .lookDown:
+            return .nearEdge
+        case .doze:
+            return .doze
+        case .sleep:
+            return .sleep
+        case .eat:
+            return .eat
+        case nil:
+            if leadingEdgeProximity() != .none {
+                return .nearEdge
+            }
+            return ticks >= Self.longIdlePauseRange.lowerBound ? .longIdle : .shortIdle
+        }
     }
 
     private func chooseIdleAction(forPauseTicks ticks: Int, edgeProximity: EdgeProximity? = nil) -> IdleActionState? {
         let edgeProximity = edgeProximity ?? leadingEdgeProximity()
         if let priorityFrames = IdleActionSelection.priorityFrames(for: edgeProximity) {
-            return IdleActionState(frames: priorityFrames)
+            return IdleActionState(frames: priorityFrames, kind: .lookDown)
         }
 
         let candidates = IdleActionSelection.enabledForBranch.compactMap { kind -> IdleActionState? in
             switch kind {
             case .headTurn:
                 if ticks >= 120, Int.random(in: IdleActionSelection.headTurnChance) == 1 {
-                    return IdleActionState(frames: IdleActionStyles.headTurn)
+                    return IdleActionState(frames: IdleActionStyles.headTurn, kind: .headTurn)
                 }
             case .lookDown:
                 if ticks >= IdleActionStyles.totalTicks(IdleActionStyles.lookDown), edgeProximity == .atEdge {
-                    return IdleActionState(frames: IdleActionStyles.lookDown)
+                    return IdleActionState(frames: IdleActionStyles.lookDown, kind: .lookDown)
                 }
             case .doze:
                 if ticks >= 140 {
-                    return IdleActionState(frames: IdleActionStyles.doze(fittingWithin: ticks))
+                    return IdleActionState(frames: IdleActionStyles.doze(fittingWithin: ticks), kind: .doze)
                 }
             case .sleep:
                 if sleepBehaviour.canStartSleep(forPauseTicks: ticks) {
-                    return IdleActionState(sleepStyle: IdleActionStyles.sleep)
+                    return IdleActionState(sleepStyle: IdleActionStyles.sleep, kind: .sleep)
                 }
             case .eat:
                 if ticks >= 90 {
-                    return IdleActionState(frames: IdleActionStyles.eat(fittingWithin: ticks))
+                    return IdleActionState(frames: IdleActionStyles.eat(fittingWithin: ticks), kind: .eat)
                 }
             }
             return nil

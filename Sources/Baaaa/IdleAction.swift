@@ -195,13 +195,20 @@ struct IdleActionState {
         case sleep(SleepActionState)
     }
 
+    let kind: IdleActionKind?
     private var storage: Storage
 
-    init(frames: [IdleActionFrame]) {
+    init(frames: [IdleActionFrame], kind: IdleActionKind? = nil) {
+        self.kind = kind
         self.storage = .frames(FrameSequenceState(frames: frames))
     }
 
-    init(sleepStyle: SleepActionStyle = IdleActionStyles.sleep, sleepTicks: Int? = nil) {
+    init(
+        sleepStyle: SleepActionStyle = IdleActionStyles.sleep,
+        sleepTicks: Int? = nil,
+        kind: IdleActionKind = .sleep
+    ) {
+        self.kind = kind
         self.storage = .sleep(SleepActionState(style: sleepStyle, sleepTicks: sleepTicks))
     }
 

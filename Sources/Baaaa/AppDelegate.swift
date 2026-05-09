@@ -4,6 +4,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var sheep: [SheepController] = []
     private var statusItem: NSStatusItem?
     private var timer: Timer?
+    private var thoughtBubblesItem: NSMenuItem?
+    private var thoughtBubblesEnabled = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupStatusItem()
@@ -30,6 +32,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         removeItem.target = self
         menu.addItem(removeItem)
 
+        let thoughtBubblesItem = NSMenuItem(
+            title: "Show Thought Bubbles",
+            action: #selector(toggleThoughtBubbles),
+            keyEquivalent: "b"
+        )
+        thoughtBubblesItem.target = self
+        thoughtBubblesItem.state = .off
+        menu.addItem(thoughtBubblesItem)
+        self.thoughtBubblesItem = thoughtBubblesItem
+
         menu.addItem(NSMenuItem.separator())
 
         let aboutItem = NSMenuItem(title: "About Baaaa", action: #selector(showAbout), keyEquivalent: "")
@@ -43,6 +55,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func addSheep() { spawnSheep() }
+
+    @objc private func toggleThoughtBubbles() {
+        thoughtBubblesEnabled.toggle()
+        thoughtBubblesItem?.state = thoughtBubblesEnabled ? .on : .off
+        sheep.forEach { $0.setThoughtBubblesEnabled(thoughtBubblesEnabled) }
+    }
 
     @objc private func removeAll() {
         sheep.forEach { $0.stop() }
@@ -67,7 +85,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func spawnSheep() {
         guard let screen = NSScreen.main else { return }
-        let controller = SheepController(screen: screen) { [weak self] sheepID in
+        let controller = SheepController(
+            screen: screen,
+            thoughtBubblesEnabled: thoughtBubblesEnabled
+        ) { [weak self] sheepID in
             self?.sheep.compactMap { other in
                 guard other.id != sheepID else { return nil }
                 return other.awarenessObservation
