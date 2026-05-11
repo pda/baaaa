@@ -2,7 +2,7 @@ import Testing
 @testable import Baaaa
 
 @Test func branchSelectionIncludesEdgeAndNonEdgeIdleBehaviours() {
-    #expect(IdleActionSelection.enabledForBranch == [.headTurn, .lookDown, .doze, .sleep, .eat])
+    #expect(IdleActionSelection.enabledForBranch == [.headTurn, .lookDown, .doze, .sleep])
 }
 
 @Test func edgePausePrioritisesLookDownFrames() {

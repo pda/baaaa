@@ -402,6 +402,6 @@ enum IdleActionSelection {
     }
 
     /// Active idle behaviours for this branch.
-    static let enabledForBranch: [IdleActionKind] = [.headTurn, .lookDown, .doze, .sleep, .eat]
+    static let enabledForBranch: [IdleActionKind] = [.headTurn, .lookDown, .doze, .sleep]
     static let headTurnChance = 1...6
 }

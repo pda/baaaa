@@ -118,6 +118,10 @@ Click the 🐑 in the menu bar for:
   accessibility `AXList` elements, converted from top-left AX screen
   coordinates into AppKit space; if Accessibility access isn't granted,
   the sheep falls to the desktop bottom instead.
+- Grass tufts occasionally spawn on the Dock using spare eSheep sprite
+  tiles. When a sheep is walking on the Dock it turns toward the nearest
+  tuft, plays the nibble animation once it reaches the grass, then the
+  tuft disappears and a later one respawns.
 - The sprite sheet is a 16×11 grid of 40×40 tiles taken from the eSheep
   project. Magenta (`#FF00FF`) is stripped to alpha at load time, and
   tiles are rendered into a `CALayer` with nearest-neighbour

@@ -1,9 +1,16 @@
 import AppKit
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// At 30 Hz, spawn a fresh grass patch every 2-5 minutes.
+    private static let grassSpawnRange = 3_600...9_000
+    /// If Dock geometry is unavailable, retry after 30-60 seconds.
+    private static let grassRetryRange = 900...1_800
+
     private var sheep: [SheepController] = []
+    private var grass: [GrassPatchController] = []
     private var statusItem: NSStatusItem?
     private var timer: Timer?
+    private var grassSpawnCountdown = Int.random(in: grassSpawnRange)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupStatusItem()
@@ -47,6 +54,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func removeAll() {
         sheep.forEach { $0.stop() }
         sheep.removeAll()
+        grass.forEach { $0.stop() }
+        grass.removeAll()
+        grassSpawnCountdown = Int.random(in: Self.grassSpawnRange)
         spawnSheep()
     }
 
@@ -72,6 +82,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard other.id != sheepID else { return nil }
                 return other.awarenessObservation
             } ?? []
+        } nearbyGrass: { [weak self] in
+            self?.grass.map(\.observation) ?? []
+        } claimGrass: { [weak self] grassID in
+            self?.claimGrass(id: grassID) ?? false
+        } releaseGrass: { [weak self] grassID in
+            self?.releaseGrass(id: grassID)
+        } consumeGrass: { [weak self] grassID in
+            self?.removeGrass(id: grassID)
         }
         sheep.append(controller)
         controller.start()
@@ -88,10 +106,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func stepFlock() {
         guard let screen = NSScreen.main else { return }
+        maybeSpawnGrass(on: screen)
         let snapshot = WindowSurfaceCache.current(
             frontmostPID: FrontmostApp.shared.pid,
             screen: screen
         )
         sheep.forEach { $0.step(windowSurfaceSnapshot: snapshot) }
+    }
+
+    private func maybeSpawnGrass(on screen: NSScreen) {
+        guard grass.isEmpty else { return }
+        if grassSpawnCountdown > 0 {
+            grassSpawnCountdown -= 1
+            return
+        }
+
+        guard let patch = GrassPatchController(screen: screen) else {
+            grassSpawnCountdown = Int.random(in: Self.grassRetryRange)
+            return
+        }
+
+        grass.append(patch)
+        patch.start()
+    }
+
+    private func removeGrass(id: Int) {
+        guard let index = grass.firstIndex(where: { $0.id == id }) else { return }
+        grass[index].stop()
+        grass.remove(at: index)
+        grassSpawnCountdown = Int.random(in: Self.grassSpawnRange)
+    }
+
+    private func claimGrass(id: Int) -> Bool {
+        guard let index = grass.firstIndex(where: { $0.id == id }) else { return false }
+        return grass[index].claim()
+    }
+
+    private func releaseGrass(id: Int) {
+        guard let index = grass.firstIndex(where: { $0.id == id }) else { return }
+        grass[index].releaseClaim()
     }
 }
