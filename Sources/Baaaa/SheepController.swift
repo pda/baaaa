@@ -103,7 +103,10 @@ final class SheepController: SheepDragDelegate {
         self.id = Self.nextID
         let size = CGSize(width: Self.displaySize, height: Self.displaySize)
         self.window = SheepWindow(size: size)
-        self.view = SheepView(frame: NSRect(origin: .zero, size: size))
+        self.view = SheepView(
+            frame: NSRect(origin: .zero, size: size),
+            spriteSheet: SpriteSheet.randomVariant()
+        )
         self.window.contentView = self.view
         self.blink = BlinkState(
             standingSprite: BlinkStyles.sheep.standingSprite,
